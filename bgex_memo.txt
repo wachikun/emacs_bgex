@@ -1,0 +1,581 @@
+
+
+
+
+はじめに
+
+	Emacs-BGEX patch は X 用 FSF Emacs の背景拡張非公式パッチです。
+
+	XEmacs のようなフレームに対する背景画像機能に加えバッファに対す
+	る背景色と背景画像機能を提供します。背景はバッファやモードに関
+	連付けることができるため、たとえば *scratch* 専用の背景色や背景
+	画像を指定することができます。
+
+
+
+
+制限
+
+	背景画像は複数 DISPLAY にわたるフレームに対応していません。
+
+	対応 depth は 16 or 32bpp です。 8bpp では動作しません。
+
+	再描画イベント(のようなもの)が発生しないタイミングにおいて
+	BGEX 単体で再描画が正しくおこなわれない場合があります。
+
+
+
+
+設定例
+
+;; Emacs-BGEX patch
+(when (boundp 'bgex-exist-p)
+  (require 'bgex)
+; デフォルトの背景として "~/.Emacs22/.emacs21_back.xpm" を指定
+  (bgex-set-image-default "~/.Emacs22/.emacs21_back.xpm")
+
+; html-mode の(major-mode に対して)背景色を指定
+  (bgex-set-color "HTML" 'bgex-identifier-type-major-mode '(60000 40000 40000))
+
+; *scratch* の(バッファ名に対して)背景色を指定
+  (bgex-set-color "*scratch*" 'bgex-identifier-type-buffer-name "skyblue"))
+
+
+
+
+変数
+
+	Variable: bgex-exist-p
+		bgex が組み込まれた Emacs で定義されます。
+
+
+
+
+関数
+
+	bgex-
+
+		プレフィクス bgex- が付く関数は上位レベルの関数です。通
+		常、ユーザはこれらの関数を操作します。
+
+	Function: bgex-strict
+
+		描画モードを精度優先にすることを明示します。
+
+		この描画モードでは CPU とネットワーク帯域を犠牲にして厳
+		密さを優先します。
+
+		デフォルトの描画モードは実装やプラットフォーム依存にな
+		ります。
+
+	Function: bgex-fast
+
+		描画モードを速度優先にすることを明示します。
+
+		この描画モードでは画面が乱れることがあります。 CPU 性能
+		が低い場合やネットワーク越しで扱う場合などに有効です。
+
+		デフォルトの描画モードは実装やプラットフォーム依存にな
+		ります。
+
+	Function: bgex-enable
+
+		BGEX を有効にします。
+
+	Function: bgex-disable
+
+		BGEX を無効化します。
+
+	Function: bgex-set-image-default FILENAME &optional dynamic-color-p
+
+		引数 FILENAME には背景画像として使用するファイル名を指
+		定します。
+
+		フレーム全体に有効な背景画像を指定します。
+
+		dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+		影響を受けた色をもつ画像で表現します。例えば背景が青な
+		らば、白という色は青の影響を受け、青っぽい色になります。
+		計算式は SRC * DST / factor です。このモードは CPU に負
+		荷がかかります。
+
+	Function: bgex-set-color-default COLOR &optional dynamic-color-p
+
+		引数 FILENAME には背景色として使用する色を指定します。
+
+		フレーム全体に有効な背景色を指定します。
+
+		dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+		影響を受けた色で表現します。例えば背景が赤ならば、白と
+		いう色は赤の影響を受け、赤みを帯びた色になります。
+
+	Function: bgex-destroy-default
+
+		フレーム全体に有効な背景を削除します。
+
+	Function: bgex-set-image IDENTIFIER TYPE FILENAME &optional dynamic-color-p
+
+		ウィンドウに対する背景画像を指定します。
+
+		TYPE には次のシンボルが指定できます。
+
+			'bgex-identifier-type-major-mode
+
+				FILENAME で指定される画像を、
+				IDENTIFIER であらわされる major-mode の
+				ウィンドウ背景にします。
+
+			'bgex-identifier-type-major-mode-regexp
+
+				FILENAME で指定される画像を、
+				IDENTIFIER であらわされる major-mode の
+				ウィンドウ背景にします。major-mode には
+				regexp が使用できます。
+
+			'bgex-identifier-type-buffer-name
+
+				FILENAME で指定される画像を、
+				IDENTIFIER であらわされるバッファ名を持
+				つウィンドウの背景にします。
+
+			'bgex-identifier-type-buffer-name-regexp
+
+				FILENAME で指定される画像を、
+				IDENTIFIER であらわされるバッファ名を持
+				つウィンドウの背景にします。バッファ名
+				には regexp が使用できます。
+
+		dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+		影響を受けた色をもつ画像で表現します。例えば背景が青な
+		らば、白という色は青の影響を受け、青っぽい色になります。
+		このモードは CPU に負荷がかかります。
+
+	Function: bgex-set-color IDENTIFIER TYPE COLOR &optional dynamic-color-p
+
+		ウィンドウに対する背景色を指定します。
+
+		TYPE は bgex-set-image と同じものが使用できます。
+
+		COLOR は色名の文字列か (r g b) のようなリストを指定する
+		ことができます。
+
+		dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+		影響を受けた色で表現します。例えば背景が赤ならば、白と
+		いう色は赤の影響を受け、赤みを帯びた色になります。
+
+	Function: bgex-destroy IDENTIFIER TYPE
+
+		ウィンドウに対する背景を削除します。
+
+	Function: bgex-destroy-all
+
+		全ての背景を削除します。
+
+
+
+
+	bgexid-
+
+		プレフィクス bgexid- が付く関数は BGEXID を扱います。
+
+		内部関数ですので、ユーザは通常触れることはありません。
+
+	Function: bgexid-create IDENTIFIER TYPE
+
+		この関数は BGEXID を生成して返します。 BGEX ではここで
+		得られる BGEXID を介して背景に対するメソッドを発行しま
+		す。
+
+		エラーが発生した場合に nil を返します。
+
+		引数 IDENTIFIER にはバッファ、メジャーモードまたはマイ
+		ナーモードの名前を指定します。
+
+		TYPE が bgex-identifier-type-default のときのみ nil
+		を指定することができます。
+
+		引数 TYPE は IDENTIFIER の種類を指定します。指定できる
+		値と意味は次のようになります。
+
+		bgex-identifier-type-default
+
+			この値は BGEX において特殊なもので BGEXID == 0
+			、でしか起動できない。つまり Emacs 起動直後に設
+			定しなければならない。
+
+			この値を設定された BGEXID がある場合、デフォル
+			ト背景、つまり何も指定しない場合の背景として、
+			この BGEXID が使用される。
+
+			この値は特殊で、複数の BGEXID に対して使用する
+			ことはできない。
+
+			この値により描画される背景画像は X の背景画像機
+			能を使うため、もっとも高速である。
+
+			なお IDENTIFIER は参照されない。この場合のみ
+			IDENTIFIER に nil を指定することができる。
+
+		bgex-identifier-type-major-mode
+
+			IDENTIFIER はメジャーモード名である。
+
+		bgex-identifier-type-major-mode-regexp
+
+			IDENTIFIER はメジャーモード名である。
+
+		bgex-identifier-type-buffer-name
+
+			IDENTIFIER はバッファ名である。
+
+		bgex-identifier-type-buffer-name-regexp
+
+			IDENTIFIER はバッファ名である。
+
+	Function: bgexid-destroy BGEXID
+
+		この関数は指定された BGEXID を持つ BGEX オブジェクトの
+		破壊と同時に bgexid を解放します。
+
+		エラーが発生した場合に Non-nil を返します。
+
+	Function: bgexid-get-bgexid-list
+
+		現在登録されている bgexid の list を返します。
+
+		bgexid の 0,1,5 が有効ならば
+
+		(0 1 5)
+
+		が返ります。
+
+		bgexi-get-bgexid-list との違いは bgexid モジュール側の状
+		態を返すことです。通常の使用では bgexi-get-bgexid-list
+		と同じ値になります。
+
+	Function: bgexid-add BGEXID IDENTIFIER TYPE
+
+		指定した BGEXID に IDENTIFIER,TYPE を追加します。
+
+		エラーが発生した場合に Non-nil を返します。
+
+		引数 IDENTIFIER と TYPE は bgexid-get-id と同じ意味を持
+		ちます。
+
+	Function: bgexid-delete BGEXID IDENTIFIER TYPE
+
+		指定した BGEXID から IDENTIFIER,TYPE を削除します。
+
+		エラーが発生した場合に Non-nil を返します。
+
+		引数 IDENTIFIER と TYPE は bgexid-get-id と同じ意味を持
+		ちます。
+
+	Function: bgexid-get-identifier BGEXID
+
+		BGEXID に対する IDENTIFIER と TYPE の list を返します。
+
+		返される list は
+
+		'((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+
+		のような構造です。
+
+
+
+
+	bgexi-
+
+		プレフィクス bgexi- が付く関数は BGEX オブジェクトを扱い
+		ます。
+
+		内部関数ですので、ユーザは通常触れることはありません。
+
+	Function: bgexi-create BGEXID RENDERMODE DYNAMICMODE COLOR &optional FILENAME
+
+		指定した BGEXID に対する BGEX オブジェクトを生成します。
+
+		エラーが発生した場合に Non-nil を返します。
+
+		通常は直後に、関数 redraw-display を呼び出して明示的に
+		再描画を実行する必要があります。
+
+		引数 RENDERMODE には塗り潰しモードを指定します。指定で
+		きる値と意味は次のようになります。
+
+		Non-nil
+			背景画像で塗り潰します。
+		nil
+			背景色で塗り潰します。
+
+		引数 DYNAMICMODE には色生成法を指定します。指定できる値
+		と意味は次のようになります。
+
+		Non-nil
+			動的に色を生成します。
+		nil
+			背景色のみ操作します。
+
+		引数 FILENAME には背景画像として使用するファイル名を指
+		定します。nil またはファイル名で指定された画像が無効な
+		場合、塗り潰しモードは強制的に背景色モードになります。
+
+		引数 COLOR は背景色を指定します。指定は '(r,g,b) のよう
+		なリスト、 nil または色名の文字列を指定します。 nil な
+		らば本来の背景色を使用します。 r,g,b は整数で 0-65535
+		の範囲をとります。
+
+	Function: bgexi-destroy BGEXID
+
+		指定した BGEXID に対する BGEX オブジェクトを破壊、解放
+		します。
+
+		エラーが発生した場合に Non-nil を返します。
+
+		通常は直後に、関数 redraw-display を呼び出して明示的に
+		再描画を実行する必要があります。
+
+	Function: bgexi-enable
+
+		BGEX を有効化します。
+
+		常に nil を返します。
+
+	Function: bgexi-disable
+
+		BGEX を無効化します。
+
+		常に nil を返します。
+
+	Function: bgexi-set-draw-strict
+
+		描画モードを精度優先にすることを明示します。
+
+		この描画モードでは CPU とネットワーク帯域を犠牲にして厳
+		密さを優先します。
+
+		デフォルトの描画モードは実装やプラットフォーム依存にな
+		ります。
+
+		常に nil を返します。
+
+	Function: bgexi-set-draw-fast
+
+		描画モードを速度優先にすることを明示します。
+
+		この描画モードでは画面が乱れることがあります。 CPU 性能
+		が低い場合やネットワーク越しで扱う場合などに有効です。
+
+		デフォルトの描画モードは実装やプラットフォーム依存にな
+		ります。
+
+		常に nil を返します。
+
+	Function: bgexi-get-bgexid-list
+
+		現在登録されている bgexid の list を返します。
+
+		bgexid の 0,1,5 が有効ならば
+
+		(0 1 5)
+
+		が返ります。
+
+		bgexid-get-bgexid-list との違いは bgexi モジュール側の状
+		態を返すことです。通常の使用では
+		bgexid-get-bgexid-list と同じ値になります。
+
+	Function: bgexi-get-identifier BGEXID
+
+		BGEXID に対する IDENTIFIER と TYPE の list を返します。
+
+		返される list は
+
+		'((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+
+		のような構造です。
+
+	Function: bgexi-set-active-flag BGEXID FLAG
+
+		指定した BGEXID に対する BGEX オブジェクトを制御するフ
+		ラグを設定します。 Non-nil ならば有効化します。戻り値は
+		設定される前の値です。
+
+	Function: bgexi-get-active-flag BGEXID
+
+		指定した BGEXID に対する BGEX オブジェクトを制御するフ
+		ラグを得ます。
+
+	Function: bgexi-get-render-mode BGEXID
+
+		塗り潰しモードを得ます。 Non-nil ならば背景画像で、
+		nil ならば背景色で塗り潰します。
+
+	Function: bgexi-set-dynamic-color-flag BGEXID FLAG
+
+		動的に色を生成するかどうかを指定します。
+
+		戻り値は設定される前の値です。
+
+		bgexi-create などと同様に、関数 redraw-display を呼び出
+		し、明示的に再描画を実行する必要があります。
+
+	Function: bgexi-get-dynamic-color-flag BGEXID
+
+		動的に色を生成するかどうかのフラグを得ます。
+
+	Function: bgexi-set-factor BGEXID factor
+
+		動的に色を生成ときのパラメータを指定します。
+
+		戻り値は設定される前の値です。
+
+	Function: bgexi-get-factor BGEXID
+
+		動的に色を生成ときのパラメータを得ます。
+
+	Function: bgexi-set-image-filename BGEXID FILENAME
+
+		指定した BGEXID に対する BGEX オブジェクトに FILENAME
+		で指定した背景画像を指定します。
+
+		この関数は指定した BGEX オブジェクトは破棄、再生成する
+		ため bgexi-create などと同様に、関数 redraw-display を呼
+		び出し、明示的に再描画を実行する必要があります。
+
+	Function: bgexi-get-image-filename BGEXID
+
+		指定した BGEXID に対する BGEX オブジェクトに設定された
+		背景画像ファイル名を取得します。
+
+	Function: bgexi-set-color BGEXID COLOR
+
+		指定した BGEXID に対する BGEX オブジェクトに COLOR で指
+		定した背景色を設定します。 COLOR の指定は bgex-create
+		と同じフォーマットです。
+
+		戻り値は設定される前の値です。
+
+		bgexi-create などと同様に、関数 redraw-display を呼び出
+		し、明示的に再描画を実行する必要があります。
+
+	Function: bgexi-get-color BGEXID
+
+		指定した BGEXID に対する BGEX オブジェクトに設定された
+		背景色を取得します。戻り値は (r g b) のようなリストです。
+
+	BETA! Function: bgexi-redraw-window WINDOW
+
+		指定した WINDOW に再描画リクエストを発行します。
+
+
+
+
+実装
+
+	BGEX は、その名前のとおり Emacs21 が持つ背景を拡張するもので、
+	実装は残念ながらお世辞にも美しいものとはいえません。C で実装さ
+	れたレイヤと elisp で実装されたレイヤがあり、通常、ユーザは
+	elisp で実装されたレイヤにのみ触れることになります。
+
+
+- 実装レイヤ
+
+	BGEX には次のような 3 層の実装レイヤがあります。
+
+	1. bgex
+	2. bgexi
+	3. bgexid
+
+	bgex レイヤが通常ユーザが触れるインターフェイス
+	です。 elisp で実装されています。
+
+	bgexi レイヤでは BGEX オブジェクトと呼ばれるオブジェクトを扱い
+	ます。 BGEX オブジェクトは拡張機能を保持するオブジェクトです。
+	C で実装されています。
+
+	bgexid レイヤは BGEXID と呼ばれる整数を管理します。 BGEXID は
+	BGEX オブジェクトと major-mode や buffer-name を関連付けます。
+	C で実装されています。
+
+
+- ウィンドウに対する背景画像処理の描画部
+
+	ウィンドウに対する背景画像処理に関する描画部は、 xterm.c 内の背
+	景塗り潰しと文字列描画処理を強引に置き換える形で実装しています。
+	これは通常の X による背景 Pixmap 処理
+	(XSetWindowBackgroundPixmap()) に比べ、非常に高価なものになりま
+	す。具体的には X を低速なネットワーク越しで扱うときに極端な速度
+	低下を招きます。
+
+	xterm.c では塗り潰しを XFillRectangle,XClearArea か XCopyArea
+	で行ないますが、これを必要なときに内部関数である
+	bgexi_fill_rectangle@xfns.c に置き換えています。
+
+	しかし XFillRectangle,XClearArea と bgexi_fill_rectangle は機能
+	的に可換(*1)ですが、 XCopyArea はその意味が異なるので当然問題が
+	生じます。この問題は強制的に expose_window により再描画させるこ
+	とで解決しています。このため BGEX が有効な場合、通常より無駄な
+	処理が発生することになります。
+
+	更に window 書き換えの最適化を意図的に抑えている部分もあります。
+	これは本来書き換えの必要の無い背景部を BGEX では書き換える必要
+	があるためです。
+
+(*1) XClearArea は GC による clip-mask が使えないなど、厳密には機能が異
+     なる。
+
+
+
+
+- 初期化
+
+	初期化関数として bgexi-create がありますが、これは初期化のトリ
+	ガを引くだけです。実際の初期化はここではなく
+	bgexi_fill_rectangle 内になります。このため bgexi-create を呼び、
+	画面の更新が無い場合は画面は何も変わりません。
+
+
+- Pixmap GC
+
+	20080305_0 より前の背景画像の動的生成モードでは、 Pixmap が無限
+	に必要になりますが、当然、資源には限りがあるため固定長の
+	Pixmap 領域を LRU *的*実装で使いまわします。これに関する現在の
+	実装はあまり賢いものではありませんが、とりあえず用をなしている
+	ようです。
+
+	20080305_0 以降では描画時に画像を生成するようになったため、この
+	機能は廃止されています。
+
+	(20080305_0 より前は小さなテクスチャをタイリングさせることを前
+	 提とした設計で、あらかじめ Pixmap を作っておくことで高速化を狙っ
+	 ていましたが、大きなテクスチャを使う場合に極端な速度低下を招い
+	 ていました。 20080305_0 以降では小さなテクスチャの場合、若干速
+	 度が低下する可能性はありますが、大きなテクスチャでも実用的な速
+	 度が出るような設計になっています。)
+
+
+
+
+バグ
+
+	複数フレームの処理が怪しい。
+
+	画像ファイルまわりでエラーが発生するとハングアップする可能性が
+	ある。
+
+	X に依存している。
+
+	対応フォーマットは XPM,JPEG,PNG のみ。
+
+	高速描画モードで modeline が化けることがある。 (GC の
+	clip-mask を期待している位置で XClearArea を利用しているため。)
+
+	効率をあまり重要視していない実装である。
+
+
+
+
+TODO
+
+	なし。次は Emacs-GLEX patch を予定しているので。(いつになることやら。。。)

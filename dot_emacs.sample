@@ -1,0 +1,4 @@
+;; Emacs-BGEX patch
+(when (boundp 'bgex-exist-p)
+  (require 'bgex)
+  (background-extension-set-image-default "~/background.xpm" t))
