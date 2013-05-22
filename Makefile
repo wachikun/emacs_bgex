@@ -3,7 +3,7 @@
 .PHONY			: all trunk 21.4 23.3a 24.2
 
 
-BASE_TRUNK		= patch-bgex_20121216_0-bzr-emacs-trunk
+BASE_TRUNK		= patch-bgex_20130329_0-bzr-emacs-trunk
 BASE_21_4		= patch-bgex_20050921_0-emacs-21.4
 BASE_23_3A		= patch-bgex_20110822_0-emacs-23.3a
 BASE_24_2		= patch-bgex_20120916_0-emacs-24.2
