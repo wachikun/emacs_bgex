@@ -1,18 +1,38 @@
-;;;
-;;; Emacs-BGEX patch convenience functions
-;;;
+;; bgex.el -- Emacs-BGEX patch convenience functions -*- coding: iso-2022-jp -*-
 
+;; Copyright (C) 2003-2013 Tadashi Watanabe <wac@umiushi.org>
 
+;; Author: Tadashi Watanabe <wac@umiushi.org>
+;; Maintainer: Tadashi Watanabe <wac@umiushi.org>
+;; Version: 
+;; Keywords: tools
 
+;; This program is free software; you can redistribute it and/or
+;; modify it under the terms of the GNU General Public License as
+;; published by the Free Software Foundation; either version 2 of
+;; the License, or (at your option) any later version.
+
+;; This program is distributed in the hope that it will be
+;; useful, but WITHOUT ANY WARRANTY; without even the implied
+;; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+;; PURPOSE.  See the GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public
+;; License along with this program; if not, write to the Free
+;; Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+;; MA 02111-1307 USA
+
+;;; Commentary:
+
+;; http://umiushi.org/~wac/bgex/
+
+;;; Code:
 
 ;;
 (defvar bgex-id-default nil)
 (defvar bgex-initialize-add-hook-p nil)
 
-
-
-
-;; ½é´ü²½»þ¤Ë É¬Í×¤Ê hook ¤ò¤·¤Þ¤¹¡£
+;; $B=i4|2=;~$K(B $BI,MW$J(B hook $B$r$7$^$9!#(B
 (defun bgex-initialize-add-hook ()
   (when (not bgex-initialize-add-hook-p)
     (add-hook 'dired-mode-hook
@@ -21,14 +41,10 @@
     (setq bgex-initialize-add-hook-p t)))
 
 
-
-
 (bgex-initialize-add-hook)
 
 
-
-
-;; ¥Ç¥Õ¥©¥ë¥ÈÇØ·Ê¤¬ÅÐÏ¿¤µ¤ì¤Æ¤¤¤ì¤Ð Non-nil ¤òÊÖ¤·¤Þ¤¹¡£
+;; $B%G%U%)%k%HGX7J$,EPO?$5$l$F$$$l$P(B Non-nil $B$rJV$7$^$9!#(B
 (defun bgex-bgexid-check-default ()
   (let ((list (bgexid-get-bgexid-list)) (i 0) (id))
     (catch 'loop
@@ -39,8 +55,7 @@
 	  (setq i (1+ i))))
       (throw 'loop nil))))
 
-
-;; »ØÄê¤·¤¿ÇØ·Ê¤¬ÅÐÏ¿¤µ¤ì¤Æ¤¤¤ì¤Ð Non-nil ¤òÊÖ¤·¤Þ¤¹¡£
+;; $B;XDj$7$?GX7J$,EPO?$5$l$F$$$l$P(B Non-nil $B$rJV$7$^$9!#(B
 (defun bgex-bgexid-check (identifier type)
   (let ((list (bgexid-get-bgexid-list)) (i 0) (id))
     (catch 'loop
@@ -52,14 +67,11 @@
 	  (setq i (1+ i))))
       (throw 'loop nil))))
 
-
-
-
 ;;
 (defun bgex-strict ()
-  "BGEX ¤ÎÉÁ²è¤ò¸·Ì©¥â¡¼¥É¤Ë¤·¤Þ¤¹¡£
-CPU ¤È¥Í¥Ã¥È¥ï¡¼¥¯ÂÓ°è¤òµ¾À·¤Ë¤·¤Æ¤Ç¤âÉÁ²è¤Î¸·Ì©¤µ¤òÍ¥Àè¤·¤Þ¤¹¡£
-¥Ç¥Õ¥©¥ë¥È¤Ç¤Ï¤³¤Î¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
+  "BGEX $B$NIA2h$r87L)%b!<%I$K$7$^$9!#(B
+CPU $B$H%M%C%H%o!<%/BS0h$r5>@7$K$7$F$G$bIA2h$N87L)$5$rM%@h$7$^$9!#(B
+$B%G%U%)%k%H$G$O$3$N%b!<%I$K$J$j$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -68,11 +80,10 @@ CPU ¤È¥Í¥Ã¥È¥ï¡¼¥¯ÂÓ°è¤òµ¾À·¤Ë¤·¤Æ¤Ç¤âÉÁ²è¤Î¸·Ì©¤µ¤òÍ¥Àè¤·¤Þ¤¹¡£
 	(redraw-display))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-fast ()
-  "BGEX ¤ÎÉÁ²è¤ò¹âÂ®¥â¡¼¥É¤Ë¤·¤Þ¤¹¡£
-²èÌÌ¤¬¼ã´³Íð¤ì¤ë¤³¤È¤¬¤¢¤ê¤Þ¤¹¡£
-CPU À­Ç½¤¬Äã¤¤¾ì¹ç¤ä¥Í¥Ã¥È¥ï¡¼¥¯±Û¤·¤Ç°·¤¦¾ì¹ç¤Ê¤É¤ËÍ­¸ú¤Ç¤¹¡£"
+  "BGEX $B$NIA2h$r9bB.%b!<%I$K$7$^$9!#(B
+$B2hLL$,<c43Mp$l$k$3$H$,$"$j$^$9!#(B
+CPU $B@-G=$,Dc$$>l9g$d%M%C%H%o!<%/1[$7$G07$&>l9g$J$I$KM-8z$G$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -81,12 +92,9 @@ CPU À­Ç½¤¬Äã¤¤¾ì¹ç¤ä¥Í¥Ã¥È¥ï¡¼¥¯±Û¤·¤Ç°·¤¦¾ì¹ç¤Ê¤É¤ËÍ­¸ú¤Ç¤¹¡£"
 	(redraw-display))
     (message "Emacs is not running under a X window system.")))
 
-
-
-
 ;;
 (defun bgex-enable ()
-  "BGEX ¤òÍ­¸ú¤Ë¤·¤Þ¤¹¡£"
+  "BGEX $B$rM-8z$K$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -95,9 +103,8 @@ CPU À­Ç½¤¬Äã¤¤¾ì¹ç¤ä¥Í¥Ã¥È¥ï¡¼¥¯±Û¤·¤Ç°·¤¦¾ì¹ç¤Ê¤É¤ËÍ­¸ú¤Ç¤¹¡£"
 	(redraw-display))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-disable ()
-  "BGEX ¤òÌµ¸ú²½¤·¤Þ¤¹¡£"
+  "BGEX $B$rL58z2=$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -108,19 +115,16 @@ CPU À­Ç½¤¬Äã¤¤¾ì¹ç¤ä¥Í¥Ã¥È¥ï¡¼¥¯±Û¤·¤Ç°·¤¦¾ì¹ç¤Ê¤É¤ËÍ­¸ú¤Ç¤¹¡£"
 	(redraw-display))
     (message "Emacs is not running under a X window system.")))
 
-
-
-
 ;;
 (defun bgex-set-image (identifier type filename &optional dynamic-color-p)
-  "¥¦¥£¥ó¥É¥¦¤´¤È¤ÎÇØ·Ê²èÁü¤ò»ØÄê¤·¤Þ¤¹¡£
-identifier ¤Ï¥¦¥£¥ó¥É¥¦¤ò¼±ÊÌ¤¹¤ë¤¿¤á¤ÎÊ¸»úÎó¤Ç¡¢¥á¥¸¥ã¡¼¥â¡¼¥É¤ä¥Ð¥Ã¥Õ¥¡Ì¾¤ò»ØÄê¤·¤Þ¤¹¡£
-type ¤Ë¤Ï
-    'bgex-identifier-type-major-mode	(identifier ¤ò¥á¥¸¥ã¡¼¥â¡¼¥ÉÌ¾¤È¤·¤Æ°·¤¦)
-    'bgex-identifier-type-buffer-name	(identifier ¤ò¥Ð¥Ã¥Õ¥¡Ì¾¤È¤·¤Æ°·¤¦)
-¤¬»ØÄê¤Ç¤­¤Þ¤¹¡£
-filename ¤Ë¤Ï²èÁü¥Õ¥¡¥¤¥ëÌ¾¤ò»ØÄê¤·¤Þ¤¹¡£
-dynamic-color-p ¤¬ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Çµ¯Æ°¤·¤Þ¤¹¡£"
+  "$B%&%#%s%I%&$4$H$NGX7J2hA|$r;XDj$7$^$9!#(B
+identifier $B$O%&%#%s%I%&$r<1JL$9$k$?$a$NJ8;zNs$G!"%a%8%c!<%b!<%I$d%P%C%U%!L>$r;XDj$7$^$9!#(B
+type $B$K$O(B
+    'bgex-identifier-type-major-mode	(identifier $B$r%a%8%c!<%b!<%IL>$H$7$F07$&(B)
+    'bgex-identifier-type-buffer-name	(identifier $B$r%P%C%U%!L>$H$7$F07$&(B)
+$B$,;XDj$G$-$^$9!#(B
+filename $B$K$O2hA|%U%!%$%kL>$r;XDj$7$^$9!#(B
+dynamic-color-p $B$,(B Non-nil $B$J$i$PF0E*?'@8@.%b!<%I$G5/F0$7$^$9!#(B"
   (interactive)
 
   (unless (file-readable-p filename)
@@ -144,17 +148,16 @@ dynamic-color-p ¤¬ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Çµ¯Æ°¤·¤Þ¤¹¡£"
 		(error "Internal error."))))))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-set-color (identifier type color &optional dynamic-color-p)
-  "¥¦¥£¥ó¥É¥¦¤´¤È¤ÎÇØ·Ê¿§¤ò»ØÄê¤·¤Þ¤¹¡£
-identifier ¤Ï¥¦¥£¥ó¥É¥¦¤ò¼±ÊÌ¤¹¤ë¤¿¤á¤ÎÊ¸»úÎó¤Ç¡¢¥á¥¸¥ã¡¼¥â¡¼¥É¤ä¥Ð¥Ã¥Õ¥¡Ì¾¤ò»ØÄê¤·¤Þ¤¹¡£
-type ¤Ë¤Ï
-    'bgex-identifier-type-major-mode	(identifier ¤ò¥á¥¸¥ã¡¼¥â¡¼¥ÉÌ¾¤È¤·¤Æ°·¤¦)
-    'bgex-identifier-type-buffer-name	(identifier ¤ò¥Ð¥Ã¥Õ¥¡Ì¾¤È¤·¤Æ°·¤¦)
-¤¬»ØÄê¤Ç¤­¤ë¡£
-color ¤Ë¤Ï¿§¤ò»ØÄê¤·¤Þ¤¹¡£¿§Ì¾¤ò¤¢¤é¤ï¤¹Ê¸»úÎó¤« '(r g b) ¤Î¤è¤¦¤Ê¥ê¥¹¥È¤ò»ØÄê¤·¤Þ¤¹¡£
-r,g,b ¤ÏÀ°¿ô¤Ç 0 - 65535 ¤ÎÃÍ¤ò¤È¤ê¤Þ¤¹¡£
-dynamic-color-p ¤¬ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Çµ¯Æ°¤·¤Þ¤¹¡£"
+  "$B%&%#%s%I%&$4$H$NGX7J?'$r;XDj$7$^$9!#(B
+identifier $B$O%&%#%s%I%&$r<1JL$9$k$?$a$NJ8;zNs$G!"%a%8%c!<%b!<%I$d%P%C%U%!L>$r;XDj$7$^$9!#(B
+type $B$K$O(B
+    'bgex-identifier-type-major-mode	(identifier $B$r%a%8%c!<%b!<%IL>$H$7$F07$&(B)
+    'bgex-identifier-type-buffer-name	(identifier $B$r%P%C%U%!L>$H$7$F07$&(B)
+$B$,;XDj$G$-$k!#(B
+color $B$K$O?'$r;XDj$7$^$9!#?'L>$r$"$i$o$9J8;zNs$+(B '(r g b) $B$N$h$&$J%j%9%H$r;XDj$7$^$9!#(B
+r,g,b $B$O@0?t$G(B 0 - 65535 $B$NCM$r$H$j$^$9!#(B
+dynamic-color-p $B$,(B Non-nil $B$J$i$PF0E*?'@8@.%b!<%I$G5/F0$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -175,9 +178,8 @@ dynamic-color-p ¤¬ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Çµ¯Æ°¤·¤Þ¤¹¡£"
 		(error "Internal error."))))))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-destroy (identifier type)
-  "»ØÄê¤·¤¿ÇØ·Ê¤òÇË´þ¤·¤Þ¤¹¡£"
+  "$B;XDj$7$?GX7J$rGK4~$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -189,29 +191,24 @@ dynamic-color-p ¤¬ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Çµ¯Æ°¤·¤Þ¤¹¡£"
 	    getid)))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-set-dynamic-color-flag (bgexid flag)
-  "»ØÄê¤·¤¿ÇØ·Ê¤ÎÆ°Åª¿§À¸À®¥â¡¼¥É¥Õ¥é¥°¤òÀßÄê¤·¤Þ¤¹¡£
-Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
+  "$B;XDj$7$?GX7J$NF0E*?'@8@.%b!<%I%U%i%0$r@_Dj$7$^$9!#(B
+Non-nil $B$J$i$PF0E*?'@8@.%b!<%I$K$J$j$^$9!#(B"
   (interactive)
 
   (redraw-display)
   (bgexi-set-dynamic-color-flag bgexid flag)
   (redraw-display))
 
-
 (defun bgex-get-dynamic-color-flag (bgexid)
-  "»ØÄê¤·¤¿ÇØ·Ê¤ÎÆ°Åª¿§À¸À®¥â¡¼¥É¥Õ¥é¥°¤òÆÀ¤Þ¤¹¡£"
+  "$B;XDj$7$?GX7J$NF0E*?'@8@.%b!<%I%U%i%0$rF@$^$9!#(B"
   (interactive)
 
   (bgexi-get-dynamic-color-flag bgexid))
 
-
-
-
 ;;
 (defun bgex-set-image-default (filename &optional dynamic-color-p)
-  "¥Ç¥Õ¥©¥ë¥È¤ÎÇØ·Ê²èÁü¤ò»ØÄê¤·¤Þ¤¹¡£"
+  "$B%G%U%)%k%H$NGX7J2hA|$r;XDj$7$^$9!#(B"
   (interactive)
 
   (unless (file-readable-p filename)
@@ -239,9 +236,8 @@ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
 	      (error "Internal error.")))))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-set-color-default (color &optional dynamic-color-p)
-  "¥Ç¥Õ¥©¥ë¥È¤ÎÇØ·Ê¿§¤ò»ØÄê¤·¤Þ¤¹¡£"
+  "$B%G%U%)%k%H$NGX7J?'$r;XDj$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -266,9 +262,8 @@ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
 	      (error "Internal error.")))))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-destroy-default ()
-  "¥Ç¥Õ¥©¥ë¥È¤ÎÇØ·Ê¤òÇË´þ¤·¤Þ¤¹¡£"
+  "$B%G%U%)%k%H$NGX7J$rGK4~$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -282,9 +277,8 @@ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
 	  (message "BGEX is not used.")))
     (message "Emacs is not running under a X window system.")))
 
-
 (defun bgex-set-dynamic-color-flag-default (flag)
-  "¥Ç¥Õ¥©¥ë¥È¤ÎÇØ·Ê¤ÎÆ°Åª¿§À¸À®¥â¡¼¥É¥Õ¥é¥°¤òÀßÄê¤·¤Þ¤¹¡£"
+  "$B%G%U%)%k%H$NGX7J$NF0E*?'@8@.%b!<%I%U%i%0$r@_Dj$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -294,12 +288,9 @@ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
 	(redraw-display))
     (message "Emacs is not running under a X window system.")))
 
-
-
-
 ;;
 (defun bgex-destroy-all ()
-  "BGEX ¤òÇË´þ¤·¤Þ¤¹¡£"
+  "BGEX $B$rGK4~$7$^$9!#(B"
   (interactive)
 
   (if (string= window-system "x")
@@ -312,16 +303,10 @@ Non-nil ¤Ê¤é¤ÐÆ°Åª¿§À¸À®¥â¡¼¥É¤Ë¤Ê¤ê¤Þ¤¹¡£"
 	  i))
     (message "Emacs is not running under a X window system.")))
 
-
-
-
 (defun bgex-dired-sort-wrapper (&optional arg)
   (interactive "P")
   (dired-sort-toggle-or-edit arg)
   (bgexi-redraw-window (selected-window)))
-
-
-
 
 ;;
 (provide 'bgex)
