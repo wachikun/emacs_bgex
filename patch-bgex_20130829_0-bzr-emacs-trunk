@@ -1,0 +1,4410 @@
+=== modified file 'src/dispextern.h'
+--- src/dispextern.h	2013-08-28 11:00:03 +0000
++++ src/dispextern.h	2013-08-28 19:34:10 +0000
+@@ -2835,7 +2835,7 @@
+   void (*define_frame_cursor) (struct frame *f, Cursor cursor);
+ 
+ /* Clear the area at (X,Y,WIDTH,HEIGHT) of frame F.  */
+-  void (*clear_frame_area) (struct frame *f, int x, int y,
++  void (*clear_frame_area) (struct window *w, struct frame *f, int x, int y,
+                             int width, int height);
+ 
+ /* Draw specified cursor CURSOR_TYPE of width CURSOR_WIDTH
+
+=== modified file 'src/frame.h'
+--- src/frame.h	2013-08-23 04:03:25 +0000
++++ src/frame.h	2013-08-28 19:34:10 +0000
+@@ -16,6 +16,8 @@
+ You should have received a copy of the GNU General Public License
+ along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.  */
+ 
++#include <X11/Xlib.h>
++
+ /* Don't multiply include: dispextern.h includes macterm.h which
+    includes frame.h some emacs source includes both dispextern.h and
+    frame.h.  */
+@@ -202,6 +204,9 @@
+      be used for output.  */
+   unsigned glyphs_initialized_p : 1;
+ 
++  int bgexi_background_pixmap_initialized_p;
++  int bgexi_background_pixmap_p;
++
+   /* Set to non-zero in change_frame_size when size of frame changed
+      Clear the frame in clear_garbaged_frames if set.  */
+   unsigned resized_p : 1;
+
+=== modified file 'src/gtkutil.c'
+--- src/gtkutil.c	2013-08-27 18:47:55 +0000
++++ src/gtkutil.c	2013-08-28 19:34:10 +0000
+@@ -876,21 +876,25 @@
+       gdk_window_process_all_updates ();
+       x_clear_area (FRAME_X_DISPLAY (f),
+                     FRAME_X_WINDOW (f),
++                    0,
+                     0, 0,
+                     FRAME_PIXEL_WIDTH (f),
+                     FRAME_INTERNAL_BORDER_WIDTH (f), 0);
+       x_clear_area (FRAME_X_DISPLAY (f),
+                     FRAME_X_WINDOW (f),
++                    0,
+                     0, 0,
+                     FRAME_INTERNAL_BORDER_WIDTH (f),
+                     FRAME_PIXEL_HEIGHT (f), 0);
+       x_clear_area (FRAME_X_DISPLAY (f),
+                     FRAME_X_WINDOW (f),
++                    0,
+                     0, FRAME_PIXEL_HEIGHT (f) - FRAME_INTERNAL_BORDER_WIDTH (f),
+                     FRAME_PIXEL_WIDTH (f),
+                     FRAME_INTERNAL_BORDER_WIDTH (f), 0);
+       x_clear_area (FRAME_X_DISPLAY (f),
+                     FRAME_X_WINDOW (f),
++                    0,
+                     FRAME_PIXEL_WIDTH (f) - FRAME_INTERNAL_BORDER_WIDTH (f),
+                     0,
+                     FRAME_INTERNAL_BORDER_WIDTH (f),
+@@ -3757,6 +3761,7 @@
+              above.  */
+           x_clear_area (FRAME_X_DISPLAY (f),
+                         FRAME_X_WINDOW (f),
++                        0,
+                         oldx, oldy, oldw, oldh, 0);
+         }
+ 
+
+=== modified file 'src/window.c'
+--- src/window.c	2013-08-27 03:52:21 +0000
++++ src/window.c	2013-08-28 19:34:10 +0000
+@@ -135,6 +135,8 @@
+ /* Same for window_scroll_line_based.  */
+ static EMACS_INT window_scroll_preserve_hpos;
+ static EMACS_INT window_scroll_preserve_vpos;
++
++extern void bgexi_redraw_all ();
+ 
+ static void
+ CHECK_WINDOW_CONFIGURATION (Lisp_Object x)
+@@ -3153,6 +3155,8 @@
+   ptrdiff_t count = SPECPDL_INDEX ();
+   int samebuf = EQ (buffer, w->contents);
+ 
++  w->bgexi_redisplay_p = 1;
++
+   wset_buffer (w, buffer);
+ 
+   if (EQ (window, selected_window))
+@@ -5469,6 +5473,8 @@
+   struct frame *f;
+   ptrdiff_t old_point = -1;
+ 
++  bgexi_redraw_all ();
++
+   CHECK_WINDOW_CONFIGURATION (configuration);
+ 
+   data = (struct save_window_data *) XVECTOR (configuration);
+
+=== modified file 'src/window.h'
+--- src/window.h	2013-08-28 05:45:38 +0000
++++ src/window.h	2013-08-28 19:34:10 +0000
+@@ -328,6 +328,9 @@
+        the frame image that window_end_pos did not get onto the frame.  */
+     unsigned window_end_valid : 1;
+ 
++    /* BGEX flag. */
++    unsigned bgexi_redisplay_p : 1;
++
+     /* Amount by which lines of this window are scrolled in
+        y-direction (smooth scrolling).  */
+     int vscroll;
+
+=== modified file 'src/xdisp.c'
+--- src/xdisp.c	2013-08-28 11:00:03 +0000
++++ src/xdisp.c	2013-08-28 19:57:20 +0000
+@@ -2470,6 +2470,13 @@
+     = MATRIX_ROW_VPOS (row, current ? w->current_matrix : w->desired_matrix);
+ }
+ 
++
++extern int bgexi_p (int bgexid);
++extern int bgexi_fast_p ();
++extern int bgexi_only_fast_p ();
++extern int bgexi_fill_rectangle (GC gc, struct window *window,
++                                 int x, int y, int w, int h, int *rgba);
++
+ /***********************************************************************
+ 			Lisp form evaluation
+  ***********************************************************************/
+@@ -15478,6 +15485,18 @@
+   if (mode_line_update_needed (w))
+     update_mode_line = 1;
+ 
++  if (!just_this_one_p)
++    {
++      if (bgexi_p (-1) && !bgexi_only_fast_p () && w->bgexi_redisplay_p)
++        {
++          block_input ();
++          w->bgexi_redisplay_p = 0;
++          do_pending_window_change(1);
++          clear_current_matrices (f);
++          unblock_input ();
++        }
++    }
++
+   /* Point refers normally to the selected window.  For any other
+      window, set up appropriate value.  */
+   if (!EQ (window, selected_window))
+@@ -25872,7 +25891,7 @@
+   if (to_x > from_x && to_y > from_y)
+     {
+       block_input ();
+-      FRAME_RIF (f)->clear_frame_area (f, from_x, from_y,
++      FRAME_RIF (f)->clear_frame_area (w, f, from_x, from_y,
+                                        to_x - from_x, to_y - from_y);
+       unblock_input ();
+     }
+@@ -26390,7 +26409,7 @@
+       x = WINDOW_TEXT_TO_FRAME_PIXEL_X (w, max (x, left_x));
+ 
+       if (width > 0)
+-	FRAME_RIF (f)->clear_frame_area (f, x, y, width, cursor_row->visible_height);
++	FRAME_RIF (f)->clear_frame_area (w, f, x, y, width, cursor_row->visible_height);
+     }
+ 
+   /* Erase the cursor by redrawing the character underneath it.  */
+@@ -28755,7 +28774,7 @@
+    input blocked.  Value is non-zero if the exposure overwrites
+    mouse-face.  */
+ 
+-static int
++int
+ expose_window (struct window *w, XRectangle *fr)
+ {
+   struct frame *f = XFRAME (w->frame);
+@@ -28794,6 +28813,15 @@
+       TRACE ((stderr, "expose_window (%d, %d, %d, %d)\n",
+ 	      r.x, r.y, r.width, r.height));
+ 
++      if (bgexi_p (-1) && !bgexi_only_fast_p ())
++        {
++          Display *dpy = FRAME_X_DISPLAY (f);
++          GC gc;
++          gc = XCreateGC (dpy, FRAME_X_WINDOW (f), 0, 0);
++          bgexi_fill_rectangle (gc, w, r.x, r.y, r.width, r.height, 0);
++          XFreeGC (dpy, gc);
++        }
++
+       /* Convert to window coordinates.  */
+       r.x -= WINDOW_LEFT_EDGE_X (w);
+       r.y -= WINDOW_TOP_EDGE_Y (w);
+
+=== modified file 'src/xfns.c'
+--- src/xfns.c	2013-08-13 08:58:15 +0000
++++ src/xfns.c	2013-08-28 19:54:14 +0000
+@@ -20,6 +20,13 @@
+ #include <config.h>
+ #include <stdio.h>
+ #include <math.h>
++#if HAVE_PNG
++#if defined HAVE_LIBPNG_PNG_H
++# include <libpng/png.h>
++#else
++# include <png.h>
++#endif
++#endif
+ #include <unistd.h>
+ 
+ /* This makes the fields of a Display accessible, in Xlib header files.  */
+@@ -183,6 +190,3369 @@
+   return dpyinfo;
+ }
+ 
++/*
++
++  BGEX
++
++ */
++#define BGEXI_DBP(p,args...)
++/* #define BGEXI_DBP(p,args...) fprintf (stderr,"%s:%d  ",__FILE__,__LINE__);fprintf (stderr,p, ## args) */
++/* #define BGEXI_DBP_2(p,args...) */
++#define BGEXI_DBP_2(p,args...) fprintf (stderr,"%s:%d  ",__FILE__,__LINE__);fprintf (stderr,p, ## args)
++#define BGEXI_ERROR_BGEXID(id) error ("Illegal bgexid \"%d\".", id)
++
++enum
++{
++  BGEXI_OBJECT_LENGTH = 16,
++  BGEXID_BUFFER_LENGTH = 4 * BGEXI_OBJECT_LENGTH,
++  BGEXI_FILENAME_LENGTH = 1024,
++  BGEXI_DISPLAY_NAME_LENGTH = 1024,
++  BGEXI_IDENTIFIER_LENGTH = 1024,
++
++  BGEXI_DYNAMIC_COLOR_DEFAULT = 65536 / 2
++};
++enum
++{
++  BGEXI_IMAGE_TYPE_XPM,
++  BGEXI_IMAGE_TYPE_PNG,
++  BGEXI_IMAGE_TYPE_JPEG,
++
++  BGEXI_IMAGE_TYPE_ERROR
++};
++enum
++{
++  BGEXID_IDENTIFIER_TYPE_ERROR,
++
++  BGEXID_IDENTIFIER_TYPE_DEFAULT,
++  BGEXID_IDENTIFIER_TYPE_MAJOR_MODE,
++  BGEXID_IDENTIFIER_TYPE_MAJOR_MODE_REGEXP,
++  BGEXID_IDENTIFIER_TYPE_BUFFER_NAME,
++  BGEXID_IDENTIFIER_TYPE_BUFFER_NAME_REGEXP
++};
++
++struct bgexi_object
++{
++  int create_p;
++  int failed_p;
++
++  int trigger_create_p;
++  int trigger_destroy_p;
++  int trigger_restart_p;
++
++  int enable_p;
++  int dynamic_color_p;
++  int dynamic_color_factor;
++  int fill_pixmap_p;
++  int r,g,b;
++
++  int created_length;
++
++  unsigned long current_tick_tick;
++  unsigned long current_tick;
++
++  GC fixed_gc;
++  char filename[BGEXI_FILENAME_LENGTH];
++
++  int create_image_p;
++  int width;
++  int height;
++  XImage *image;
++  XImage *work_image;
++  Pixmap pixmap;
++  int rgba[4];
++};
++
++struct bgexid_unit
++{
++  int create_p;
++  int trigger_destroy_p;
++  int bgexid;
++  char identifier[BGEXI_IDENTIFIER_LENGTH];
++  int identifier_type;
++  struct bgexid_unit *next;
++};
++
++struct object_parameter
++{
++  int dynamic_color_p;
++  int fill_pixmap_p;
++  int r,g,b;
++  char filename[BGEXI_FILENAME_LENGTH];
++};
++
++static struct
++{
++  int disable_p;
++  int trigger_enable_p;
++  int trigger_disable_p;
++
++  int default_p;
++  int default_bgexid;
++
++  struct bgexid_unit id_buffer[BGEXID_BUFFER_LENGTH];
++  struct bgexid_unit *id_list_table[BGEXI_OBJECT_LENGTH];
++  struct bgexi_object object[BGEXI_OBJECT_LENGTH];
++  char display_name[BGEXI_DISPLAY_NAME_LENGTH];
++
++  int force_slow_background_pixmap_p;
++  int fast_background_pixmap_p;
++  int special_trigger_p;
++
++  int overstrike_p;
++
++  int object_parameter_fast_background_pixmap_p;
++  struct object_parameter object_parameter[BGEXI_OBJECT_LENGTH];
++} bgexi_work;
++
++/*
++  BGEX prototype
++ */
++static int
++bgexi_get_mask_length (Visual *visual, u_long mask);
++static u_long
++bgexi_get_left_shift_times (Visual *visual, u_long mask);
++static void
++bgexi_image_convert_bpp32 (XImage *src_image,
++                           XImage *dst_image,
++                           int *rgba,
++                           int factor,
++                           int image_width,
++                           int image_height,
++                           int src_x,
++                           int src_y,
++                           int width,
++                           int height,
++                           int order);
++static void
++bgexi_image_convert_bpp16 (XImage *src_image,
++                           XImage *dst_image,
++                           int *rgba,
++                           int factor,
++                           int image_width,
++                           int image_height,
++                           int src_x,
++                           int src_y,
++                           int width,
++                           int height,
++                           int order,
++                           XVisualInfo *vinfo);
++static void
++bgexi_image_convert (struct frame *f,
++                     XImage *src_image,
++                     XImage *dst_image,
++                     int *rgba,
++                     int factor,
++                     int image_width,
++                     int image_height,
++                     int src_x,
++                     int src_y,
++                     int width,
++                     int height);
++static int
++bgexi_check_image_type_by_extension (char *filename);
++#if HAVE_XPM
++static void
++bgexi_create_image_xpm (struct bgexi_object *object,
++                        struct frame *f);
++#endif  /* HAVE_XPM */
++#if HAVE_PNG
++static int
++bgexi_png_read_file_to_image (struct frame *f,
++                              char *filename,
++                              XImage **image,
++                              int *width,
++                              int *height);
++static void
++bgexi_create_image_png (struct bgexi_object *object,
++                        struct frame *f);
++#endif  /* HAVE_PNG */
++#if HAVE_JPEG
++static int
++bgexi_jpeg_read_file_to_image (struct frame *f,
++                               char *filename,
++                               XImage **image,
++                               int *width,
++                               int *height);
++static void
++bgexi_create_image_jpeg (struct bgexi_object *object,
++                         struct frame *f);
++#endif  /* HAVE_JPEG */
++static void
++bgexi_create_image (struct bgexi_object *object,
++                    struct frame *f);
++static void
++bgexi_create (int bgexid,
++              struct frame *f,
++              int dynamic_color_factor);
++static void
++bgexi_destroy (int bgexid,
++               struct frame *f);
++static int
++bgexi_intersect_rectangles (XRectangle *r1, XRectangle *r2,
++                            XRectangle *result);
++static int
++bgexi_check_bgexid (int bgexid);
++static void
++bgexi_set_active_flag (int bgexid, int flag);
++static int
++bgexi_get_active_flag (int bgexid);
++static void
++bgexi_set_dynamic_color_flag (int bgexid, int flag);
++int
++bgexi_get_dynamic_color_flag (int bgexid);
++static void
++bgexi_set_dynamic_color_factor (int bgexid, int factor);
++static int
++bgexi_get_dynamic_color_factor (int bgexid);
++static void
++bgexi_set_render_mode (int bgexid, int render_mode);
++static void
++bgexi_set_color (int bgexid, int r, int g, int b);
++static void
++bgexi_clear_image_filename_parameter (int bgexid);
++static void
++bgexi_set_disable_flag (int flag);
++static void
++bgexi_set_force_slow_background_pixmap_flag (int flag);
++static void
++bgexi_set_trigger_create (int bgexid);
++static void
++bgexi_set_parameter (int bgexid,
++                     int fast_background_pixmap_p,
++                     int dynamic_color_p,
++                     int fill_pixmap_p,
++                     int r,
++                     int g,
++                     int b,
++                     char *filename);
++static void
++bgexi_set_trigger_destroy (int bgexid);
++static void
++bgexi_set_trigger_restart (int bgexid);
++static int
++bgexid_check_identifier_type_default ();
++static int
++bgexid_check_identifier_type (char *identifier, int identifier_type);
++static int
++bgexid_create (char *identifier, int type);
++static int
++bgexid_destroy (int bgexid);
++static int
++bgexid_add (int bgexid, char *identifier, int type);
++static int
++bgexid_delete (int bgexid, char *identifier, int type);
++static int
++bgexid_get_identifier_type (char *symbol_cstring);
++static int
++bgexi_fill_color (struct window *window,
++                  int x, int y, int w, int h, int *rgba,
++                  int bgexid);
++
++/*
++ */
++int
++bgexi_p (int bgexid);
++int
++bgexi_fast_p ();
++int
++bgexi_only_fast_p ();
++int
++bgexi_dynamic_p (int bgexid);
++int
++bgexi_get_enable_bgexid (struct window *window);
++int
++bgexi_special_trigger_p ();
++int
++bgexi_clear_special_trigger_p ();
++int
++bgexi_fill_rectangle (GC gc, struct window *window,
++                      int x, int y, int w, int h, int *rgba);
++void
++bgexi_set_overstrike_flag (int overstrike_p);
++int
++bgexi_overstrike_p ();
++
++/*
++
++BGEX
++
++FACTOR
++
++R = Rpixmap * Rcolor / factor
++G = Gpixmap * Gcolor / factor
++B = Bpixmap * Bcolor / factor
++
++	`factor = 65536' means 1.0.
++	default `factor = 3 * 65536 / 4'
++
++ */
++
++static int
++bgexi_get_mask_length (Visual *visual, u_long mask)
++{
++  int length = 0;
++  u_long c = 0x00000001L;
++
++  switch (visual->class)
++    {
++    case TrueColor:
++      while (1)
++        {
++          if (mask & c)
++            break;
++          c <<= 1;
++        }
++      while (length < 32)
++        {
++          if (((mask & c) == 0) || c == 0x80000000L)
++            break;
++          length++;
++          c <<= 1;
++        }
++      return length;
++
++    default:
++      break;
++    }
++
++  return 0;
++}
++
++static u_long
++bgexi_get_left_shift_times (Visual *visual, u_long mask)
++{
++  u_long shift = 0;
++  u_long c = 0x00000001L;
++
++  switch (visual->class)
++    {
++    case TrueColor:
++      while (shift < 24)
++        {
++          if (mask & c)
++            return shift;
++          c <<= 1;
++          shift++;
++        }
++      break;
++
++    default:
++      break;
++    }
++
++  return 0;
++}
++
++static void
++bgexi_image_convert_bpp32 (XImage *src_image, XImage *dst_image, int *rgba, int factor, int image_width, int image_height, int src_x, int src_y, int width, int height, int order)
++{
++  int x,y;
++  int r = rgba[0];
++  int g = rgba[1];
++  int b = rgba[2];
++
++  switch (order)
++    {
++    case LSBFirst:
++      for (y = 0;y != height;y++)
++        {
++          if ((y >= 0) &&
++              (y < image_height) &&
++              (y + src_y >= 0) &&
++              (y + src_y < image_height))
++            {
++              for (x = 0;x != width;x++)
++                {
++                  if ((x >= 0) &&
++                      (x < image_width) &&
++                      (x + src_x >= 0) &&
++                      (x + src_x < image_width))
++                    {
++                      int t;
++                      unsigned long src;
++                      unsigned long dst;
++                      src = *((unsigned long*)(src_image->data + (src_x + x)*4 + (src_y + y)*src_image->bytes_per_line));
++
++                      t = ((src >> 0) & 0xff) * b / factor;
++                      dst  = ((t > 255) ? 255 : t) << 0;
++                      t = ((src >> 8) & 0xff) * g / factor;
++                      dst |= ((t > 255) ? 255 : t) << 8;
++                      t = ((src >> 16) & 0xff) * r / factor;
++                      dst |= ((t > 255) ? 255 : t) << 16;
++
++                      *((unsigned long*)(dst_image->data + x*4 + y*dst_image->bytes_per_line)) = dst;
++                    }
++                }
++            }
++        }
++      break;
++    case MSBFirst:
++      for (y = 0;y != height;y++)
++        {
++          if ((y >= 0) &&
++              (y < image_height) &&
++              (y + src_y >= 0) &&
++              (y + src_y < image_height))
++            {
++              for (x = 0;x != width;x++)
++                {
++                  if ((x >= 0) &&
++                      (x < image_width) &&
++                      (x + src_x >= 0) &&
++                      (x + src_x < image_width))
++                    {
++                      int t;
++                      unsigned long src;
++                      unsigned long dst;
++                      src = *((unsigned long*)(src_image->data + (src_x + x)*4 + (src_y + y)*src_image->bytes_per_line));
++
++                      t = ((src >> 0) & 0xff) * b / factor;
++                      dst  = ((t > 255) ? 255 : t) << 8;
++                      t = ((src >> 8) & 0xff) * g / factor;
++                      dst |= ((t > 255) ? 255 : t) << 16;
++                      t = ((src >> 16) & 0xff) * r / factor;
++                      dst |= ((t > 255) ? 255 : t) << 24;
++
++                      *((unsigned long*)(dst_image->data + x*4 + y*dst_image->bytes_per_line)) = dst;
++                    }
++                }
++            }
++        }
++      break;
++    }
++}
++
++static void
++bgexi_image_convert_bpp16 (XImage *src_image, XImage *dst_image, int *rgba, int factor, int image_width, int image_height, int src_x, int src_y, int width, int height, int order, XVisualInfo *vinfo)
++{
++  int x,y;
++  int r = rgba[0];
++  int g = rgba[1];
++  int b = rgba[2];
++  int rmask = vinfo->red_mask;
++  int gmask = vinfo->green_mask;
++  int bmask = vinfo->blue_mask;
++  int rshift = bgexi_get_left_shift_times (vinfo->visual, rmask);
++  int gshift = bgexi_get_left_shift_times (vinfo->visual, gmask);
++  int bshift = bgexi_get_left_shift_times (vinfo->visual, bmask);
++  int rmax = (1 << bgexi_get_mask_length (vinfo->visual, rmask)) - 1;
++  int gmax = (1 << bgexi_get_mask_length (vinfo->visual, gmask)) - 1;
++  int bmax = (1 << bgexi_get_mask_length (vinfo->visual, bmask)) - 1;
++
++  switch (order)
++    {
++    case LSBFirst:
++      for (y = 0;y != height;y++)
++        {
++          if ((y >= 0) &&
++              (y < image_height) &&
++              (y + src_y >= 0) &&
++              (y + src_y < image_height))
++            {
++              for (x = 0;x != width;x++)
++                {
++                  if ((x >= 0) &&
++                      (x < image_width) &&
++                      (x + src_x >= 0) &&
++                      (x + src_x < image_width))
++                    {
++                      int t;
++                      unsigned short src;
++                      unsigned short dst;
++                      src = *((unsigned short*)(src_image->data + (src_x + x)*2 + (src_y + y)*src_image->bytes_per_line));
++
++                      t = ((src & bmask) >> bshift) * b / factor;
++                      dst  = (((t & bmask) > bmax) ? bmax : t) << bshift;
++                      t = ((src & gmask) >> gshift) * g / factor;
++                      dst |= (((t & gmask) > gmax) ? gmax : t) << gshift;
++                      t = ((src & rmask) >> rshift) * r / factor;
++                      dst |= (((t & rmask) > rmax) ? rmax : t) << rshift;
++
++                      *((unsigned short*)(dst_image->data + x*2 + y*dst_image->bytes_per_line)) = dst;
++                    }
++                }
++            }
++        }
++      break;
++    case MSBFirst:
++      for (y = 0;y != height;y++)
++        {
++          if ((y >= 0) &&
++              (y < image_height) &&
++              (y + src_y >= 0) &&
++              (y + src_y < image_height))
++            {
++              for (x = 0;x != width;x++)
++                {
++                  if ((x >= 0) &&
++                      (x < image_width) &&
++                      (x + src_x >= 0) &&
++                      (x + src_x < image_width))
++                    {
++                      int t;
++                      unsigned short src;
++                      unsigned short dst;
++                      src = *((unsigned short*)(src_image->data + (src_x + x)*2 + (src_y + y)*src_image->bytes_per_line));
++
++                      t = ((src & bmask) >> bshift) * b / factor;
++                      dst  = (((t & bmask) > bmax) ? bmax : t) << bshift;
++                      t = ((src & gmask) >> gshift) * g / factor;
++                      dst |= (((t & gmask) > gmax) ? gmax : t) << gshift;
++                      t = ((src & rmask) >> rshift) * r / factor;
++                      dst |= (((t & rmask) > rmax) ? rmax : t) << rshift;
++
++                      *((unsigned short*)(dst_image->data + x*2 + y*dst_image->bytes_per_line)) = dst;
++                    }
++                }
++            }
++        }
++      break;
++    }
++}
++
++static void
++bgexi_image_convert (struct frame *f, XImage *src_image, XImage *dst_image, int *rgba, int factor, int image_width, int image_height, int src_x, int src_y, int width, int height)
++{
++  switch (src_image->bits_per_pixel)
++    {
++    case 32:
++    case 24:
++      bgexi_image_convert_bpp32 (src_image,
++                                 dst_image,
++                                 rgba,
++                                 factor,
++                                 image_width,
++                                 image_height,
++                                 src_x,
++                                 src_y,
++                                 width,
++                                 height,
++                                 ImageByteOrder (FRAME_X_DISPLAY (f)));
++      break;
++    case 16:
++    case 15:
++      {
++        XVisualInfo vinfo;
++        XMatchVisualInfo (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f),
++                          DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)),
++                          FRAME_X_VISUAL (f)->class, &vinfo);
++        bgexi_image_convert_bpp16 (src_image,
++                                   dst_image,
++                                   rgba,
++                                   factor,
++                                   image_width,
++                                   image_height,
++                                   src_x,
++                                   src_y,
++                                   width,
++                                   height,
++                                   ImageByteOrder (FRAME_X_DISPLAY (f)),
++                                   &vinfo);
++      }
++      break;
++    }
++}
++
++static int
++bgexi_check_image_type_by_extension (char *filename)
++{
++  Lisp_Object lisp_filename = build_string (filename);
++  int result;
++
++  if (!NILP (Fstring_match (make_pure_string ("\\.xpm$", 6, 6, 0), lisp_filename, Qnil)))
++    {
++      result = BGEXI_IMAGE_TYPE_XPM;
++    }
++  else if (!NILP (Fstring_match (make_pure_string ("\\.png$", 6, 6, 0), lisp_filename, Qnil)))
++    {
++      result = BGEXI_IMAGE_TYPE_PNG;
++    }
++  else if (!NILP (Fstring_match (make_pure_string ("\\.jpe?g$", 8, 8, 0), lisp_filename, Qnil)))
++    {
++      result = BGEXI_IMAGE_TYPE_JPEG;
++    }
++  else
++    {
++      result = BGEXI_IMAGE_TYPE_ERROR;
++    }
++
++  return result;
++}
++
++#if HAVE_XPM
++#include "X11/xpm.h"
++static void
++bgexi_create_image_xpm (struct bgexi_object *object, struct frame *f)
++{
++  XpmAttributes attrs;
++
++  object->create_image_p = 1;
++
++  memset (&attrs, 0, sizeof (attrs));
++  attrs.visual = FRAME_X_VISUAL (f);
++  attrs.colormap = FRAME_X_COLORMAP (f);
++  attrs.valuemask |= XpmVisual;
++  attrs.valuemask |= XpmColormap;
++
++  BGEXI_DBP ("try XpmReadFileToImage (). xpm:\"%s\"\n", object->filename);
++  if (XpmReadFileToImage (FRAME_X_DISPLAY (f),
++                          object->filename,
++                          &object->image,
++                          0,
++                          &attrs) != XpmSuccess)
++    {
++      BGEXI_DBP ("XpmReadFileToImage () failed.  set failed_p\n");
++      object->failed_p = 1;
++    }
++  else
++    {
++      object->width = attrs.width;
++      object->height = attrs.height;
++
++      object->work_image = XCreateImage (FRAME_X_DISPLAY (f),
++                                         DefaultVisualOfScreen (FRAME_X_SCREEN (f)),
++                                         DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)),
++                                         ZPixmap,
++                                         0,
++                                         NULL,
++                                         object->width,
++                                         object->height,
++                                         32,
++                                         0);
++      object->work_image->data = (char *) xmalloc (object->work_image->bytes_per_line * object->height);
++      object->pixmap = XCreatePixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++                                      object->width, object->height,
++                                      DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)));
++
++      object->fixed_gc = XCreateGC (FRAME_X_DISPLAY (f), object->pixmap, 0, 0);
++      XPutImage (FRAME_X_DISPLAY (f), object->pixmap, object->fixed_gc, object->image,
++                 0, 0, 0, 0,
++                 object->width, object->height);
++      XpmFreeAttributes (&attrs);
++    }
++}
++#endif	/* HAVE_XPM */
++
++#if HAVE_PNG
++/*
++ */
++static int
++bgexi_png_read_file_to_image (struct frame *f, char *filename, XImage **image, int *width, int *height)
++{
++  png_structp png_ptr;
++  png_infop info_ptr;
++  unsigned int sig_read = 0;
++  FILE *fp;
++  int depth;
++
++  if ((fp = fopen (filename, "rb")) == NULL)
++    return !0;
++
++  png_ptr = png_create_read_struct (PNG_LIBPNG_VER_STRING,
++                                    0, 0, 0);
++
++  if (png_ptr == NULL)
++    {
++      fclose (fp);
++      return !0;
++    }
++
++  info_ptr = png_create_info_struct (png_ptr);
++  if (info_ptr == NULL)
++    {
++      fclose (fp);
++      png_destroy_read_struct (&png_ptr, 0, 0);
++      return !0;
++    }
++
++  if (setjmp (png_jmpbuf (png_ptr)))
++    {
++      png_destroy_read_struct (&png_ptr, &info_ptr, 0);
++      fclose (fp);
++      return !0;
++    }
++
++  png_init_io (png_ptr, fp);
++
++  png_set_sig_bytes (png_ptr, sig_read);
++
++  png_read_png (png_ptr, info_ptr,
++                PNG_TRANSFORM_STRIP_16 |
++                PNG_TRANSFORM_STRIP_ALPHA |
++                PNG_TRANSFORM_EXPAND,
++                0);
++
++  *width = png_get_image_width (png_ptr, info_ptr);
++  *height = png_get_image_height (png_ptr, info_ptr);
++  depth = DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f));
++  *image = XCreateImage (FRAME_X_DISPLAY (f),
++                        DefaultVisualOfScreen (FRAME_X_SCREEN (f)),
++			depth, ZPixmap, 0, NULL,
++                        *width, *height,
++			depth > 16 ? 32 : depth > 8 ? 16 : 8, 0);
++  (*image)->data = (char *) xmalloc ((*image)->bytes_per_line * *height);
++  {
++    int x;
++    int y;
++
++    png_bytepp rows = png_get_rows (png_ptr, info_ptr);
++    for (y = 0; y < *height; ++y)
++      {
++        for (x = 0; x < *width; ++x)
++          {
++            unsigned long pixel;
++            pixel  = *(*(rows + y) + 0 + x*3) << (2 * 8);
++            pixel |= *(*(rows + y) + 1 + x*3) << (1 * 8);
++            pixel |= *(*(rows + y) + 2 + x*3) << (0 * 8);
++            XPutPixel (*image, x, y, pixel);
++          }
++      }
++  }
++
++  png_destroy_read_struct (&png_ptr, &info_ptr, 0);
++
++  fclose (fp);
++
++  return 0;
++}
++
++static void
++bgexi_create_image_png (struct bgexi_object *object, struct frame *f)
++{
++  int width;
++  int height;
++
++  object->create_image_p = 1;
++
++  BGEXI_DBP ("try bgexi_png_read_file_to_image (). file:\"%s\"\n", object->filename);
++  if (bgexi_png_read_file_to_image (f, object->filename,
++                                    &object->image,
++                                    &width, &height))
++    {
++      BGEXI_DBP ("bgexi_png_read_file_to_image () failed.  set failed_p\n");
++      object->failed_p = 1;
++    }
++  else
++    {
++      object->width = width;
++      object->height = height;
++
++      object->work_image = XCreateImage (FRAME_X_DISPLAY (f),
++                                         DefaultVisualOfScreen (FRAME_X_SCREEN (f)),
++                                         DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)),
++                                         ZPixmap,
++                                         0,
++                                         NULL,
++                                         object->width,
++                                         object->height,
++                                         32,
++                                         0);
++      object->work_image->data = (char *) xmalloc (object->work_image->bytes_per_line * object->height);
++      object->pixmap = XCreatePixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++                                      object->width, object->height,
++                                      DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)));
++
++      object->fixed_gc = XCreateGC (FRAME_X_DISPLAY (f), object->pixmap, 0, 0);
++      XPutImage (FRAME_X_DISPLAY (f), object->pixmap, object->fixed_gc, object->image,
++                 0, 0, 0, 0,
++                 object->width, object->height);
++    }
++}
++#endif	/* HAVE_PNG */
++
++#if HAVE_JPEG
++#include <jpeglib.h>
++#include <jerror.h>
++#include <setjmp.h>
++/*
++ */
++struct bgexi_my_error_mgr {
++  struct jpeg_error_mgr pub;	/* "public" fields */
++
++  jmp_buf setjmp_buffer;	/* for return to caller */
++};
++
++typedef struct bgexi_my_error_mgr * bgexi_my_error_ptr;
++
++void
++bgexi_my_error_exit (j_common_ptr cinfo)
++{
++  /* cinfo->err really points to a my_error_mgr struct, so coerce pointer */
++  bgexi_my_error_ptr myerr = (bgexi_my_error_ptr) cinfo->err;
++
++  /* Always display the message. */
++  /* We could postpone this until after returning, if we chose. */
++  (*cinfo->err->output_message) (cinfo);
++
++  /* Return control to the setjmp point */
++  longjmp (myerr->setjmp_buffer, 1);
++}
++
++static int
++bgexi_jpeg_read_file_to_image (struct frame *f, char *filename, XImage **image, int *width, int *height)
++{
++  struct jpeg_decompress_struct cinfo;
++  struct bgexi_my_error_mgr jerr;
++  FILE *fp;
++  JSAMPARRAY buffer;
++  int row_stride;
++  int depth;
++
++  fp = fopen (filename, "rb");
++  if (fp == 0)
++    return !0;
++
++  cinfo.err = jpeg_std_error (&jerr.pub);
++  jerr.pub.error_exit = bgexi_my_error_exit;
++
++  jpeg_create_decompress (&cinfo);
++  jpeg_stdio_src (&cinfo, (FILE *) fp);
++
++  jpeg_read_header (&cinfo, TRUE);
++  jpeg_start_decompress (&cinfo);
++
++  row_stride = cinfo.output_width * cinfo.output_components;
++  buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
++
++  *width = cinfo.output_width;
++  *height = cinfo.output_height;
++
++  depth = DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f));
++  *image = XCreateImage (FRAME_X_DISPLAY (f),
++                        DefaultVisualOfScreen (FRAME_X_SCREEN (f)),
++			depth, ZPixmap, 0, NULL,
++                        *width, *height,
++			depth > 16 ? 32 : depth > 8 ? 16 : 8, 0);
++  (*image)->data = (char *) xmalloc ((*image)->bytes_per_line * *height);
++  {
++    int x;
++    int y;
++    y = 0;
++
++    for (y = 0; y < *height; ++y)
++      {
++        jpeg_read_scanlines (&cinfo, buffer, 1);
++        for (x = 0; x < *width; ++x)
++          {
++            unsigned long pixel;
++            pixel = *((*buffer) + 0 + x*3) << 16;
++            pixel |= *((*buffer) + 1 + x*3) << 8;
++            pixel |= *((*buffer) + 2 + x*3) << 0;
++            XPutPixel (*image, x, y, pixel);
++          }
++      }
++  }
++
++  jpeg_finish_decompress (&cinfo);
++  jpeg_destroy_decompress (&cinfo);
++  fclose (fp);
++
++  return 0;
++}
++
++static void
++bgexi_create_image_jpeg (struct bgexi_object *object, struct frame *f)
++{
++  int width;
++  int height;
++
++  object->create_image_p = 1;
++
++  BGEXI_DBP ("try bgexi_jpeg_read_file_to_image (). file:\"%s\"\n", object->filename);
++  if (bgexi_jpeg_read_file_to_image (f, object->filename,
++                                     &object->image,
++                                     &width, &height))
++    {
++      BGEXI_DBP ("bgexi_jpeg_read_file_to_image () failed.  set failed_p\n");
++      object->failed_p = 1;
++    }
++  else
++    {
++      object->width = width;
++      object->height = height;
++
++      object->work_image = XCreateImage (FRAME_X_DISPLAY (f),
++                                         DefaultVisualOfScreen (FRAME_X_SCREEN (f)),
++                                         DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)),
++                                         ZPixmap,
++                                         0,
++                                         NULL,
++                                         object->width,
++                                         object->height,
++                                         32,
++                                         0);
++      object->work_image->data = (char *) xmalloc (object->work_image->bytes_per_line * object->height);
++      object->pixmap = XCreatePixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++                                      object->width, object->height,
++                                      DefaultDepth (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f)));
++
++      object->fixed_gc = XCreateGC (FRAME_X_DISPLAY (f), object->pixmap, 0, 0);
++      XPutImage (FRAME_X_DISPLAY (f), object->pixmap, object->fixed_gc, object->image,
++                 0, 0, 0, 0,
++                 object->width, object->height);
++    }
++}
++#endif	/* HAVE_JPEG */
++
++static void
++bgexi_create_image (struct bgexi_object *object, struct frame *f)
++{
++  if (object->fill_pixmap_p &&
++      !object->create_image_p)
++    {
++      switch (bgexi_check_image_type_by_extension (object->filename))
++        {
++#if HAVE_XPM
++        case BGEXI_IMAGE_TYPE_XPM:
++          bgexi_create_image_xpm (object, f);
++          break;
++#endif
++#if HAVE_PNG
++        case BGEXI_IMAGE_TYPE_PNG:
++          bgexi_create_image_png (object, f);
++          break;
++#endif
++#if HAVE_JPEG
++        case BGEXI_IMAGE_TYPE_JPEG:
++          bgexi_create_image_jpeg (object, f);
++          break;
++#endif
++        default:
++          object->failed_p = 1;
++          break;
++        }
++    }
++  else
++    {
++      BGEXI_DBP ("    CREATE ALREADY! or !fill_pixmap_p\n");
++    }
++}
++
++static void
++bgexi_create (int bgexid, struct frame *f, int dynamic_color_factor)
++{
++  if (!bgexi_work.object[bgexid].create_p)
++    {
++      bgexi_work.object[bgexid].create_p = 1;
++
++      {
++        Visual *visual = DefaultVisual (FRAME_X_DISPLAY (f), FRAME_X_SCREEN_NUMBER (f));
++        switch (visual->class)
++          {
++          case TrueColor:
++          case DirectColor:
++            break;
++
++          default:
++            BGEXI_DBP ("unknown visual class.  set failed_p\n");
++            bgexi_work.object[bgexid].failed_p = 1;
++            break;
++          }
++      }
++
++      if (bgexi_work.display_name[0] == '\0')
++        {
++          if (strlen (DisplayString (FRAME_X_DISPLAY (f))) < sizeof (bgexi_work.display_name) - 1)
++            {
++              strcpy (bgexi_work.display_name, DisplayString (FRAME_X_DISPLAY (f)));
++              BGEXI_DBP ("COPY 1ST  DisplayString (dpy):\"%s\"  first:\"%s\"",
++                         DisplayString (FRAME_X_DISPLAY (f)), bgexi_work.display_name);
++            }
++          else
++            {
++              BGEXI_DBP ("string length too large.  set failed_p\n");
++              bgexi_work.object[bgexid].failed_p = 1;
++            }
++        }
++
++      bgexi_work.object[bgexid].enable_p = 1;
++
++      if (bgexi_work.object[bgexid].failed_p == 0)
++        {
++          bgexi_work.object[bgexid].dynamic_color_p = bgexi_work.object_parameter[bgexid].dynamic_color_p;
++          bgexi_work.object[bgexid].fill_pixmap_p = bgexi_work.object_parameter[bgexid].fill_pixmap_p;
++          bgexi_work.object[bgexid].r = bgexi_work.object_parameter[bgexid].r;
++          bgexi_work.object[bgexid].g = bgexi_work.object_parameter[bgexid].g;
++          bgexi_work.object[bgexid].b = bgexi_work.object_parameter[bgexid].b;
++
++          if (bgexi_work.object_parameter[bgexid].filename[0] != '\0')
++            {
++              strcpy (bgexi_work.object[bgexid].filename, bgexi_work.object_parameter[bgexid].filename);
++              BGEXI_DBP ("copy filename:%s\n", bgexi_work.object[bgexid].filename);
++            }
++
++          if (dynamic_color_factor <= 0)
++            dynamic_color_factor = 3 * 65536 / 4;
++          if (dynamic_color_factor > 65536)
++            dynamic_color_factor = 65536;
++
++          bgexi_work.object[bgexid].dynamic_color_factor = dynamic_color_factor;
++
++          if (bgexid == 0)
++            {
++              bgexi_work.fast_background_pixmap_p = bgexi_work.object_parameter_fast_background_pixmap_p;
++            }
++        }
++    }
++}
++
++static void
++bgexi_destroy (int bgexid, struct frame *f)
++{
++  int i;
++  BGEXI_DBP ("bgexi_destroy ()\n");
++  if (bgexi_work.object[bgexid].fill_pixmap_p &&
++      bgexi_work.object[bgexid].create_p && !bgexi_work.object[bgexid].failed_p)
++    {
++      if (bgexi_work.object[bgexid].create_image_p)
++        {
++          bgexi_work.object[bgexid].create_image_p = 0;
++          XFreePixmap (FRAME_X_DISPLAY (f), bgexi_work.object[bgexid].pixmap);
++          xfree (bgexi_work.object[bgexid].image->data);
++          bgexi_work.object[bgexid].image->data = 0;
++          XDestroyImage (bgexi_work.object[bgexid].image);
++          xfree (bgexi_work.object[bgexid].work_image->data);
++          bgexi_work.object[bgexid].work_image->data = 0;
++          XDestroyImage (bgexi_work.object[bgexid].work_image);
++        }
++      XFreeGC (FRAME_X_DISPLAY (f), bgexi_work.object[bgexid].fixed_gc);
++      BGEXI_DBP ("    try bgexi_destroy  bgexid:%2d  fill_p:%d  fast_p:%d\n",
++                 bgexid,
++                 bgexi_work.object[bgexid].fill_pixmap_p,
++                 bgexi_work.fast_background_pixmap_p);
++      if ((bgexid == 0) &&
++          bgexi_work.object[bgexid].fill_pixmap_p &&
++          bgexi_work.fast_background_pixmap_p)
++        {
++          BGEXI_DBP ("    try destroy fast BG\n");
++          XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), None);
++          XSetWindowBackground (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), FRAME_BACKGROUND_PIXEL (f));
++          f->bgexi_background_pixmap_initialized_p = 0;
++          f->bgexi_background_pixmap_p = 0;
++          bgexi_work.fast_background_pixmap_p = 0;
++        }
++    }
++
++  BGEXI_DBP ("    DB:pip:%d  pp:%d  fp:%d\n",
++             f->bgexi_background_pixmap_initialized_p,
++             f->bgexi_background_pixmap_p,
++             bgexi_work.fast_background_pixmap_p);
++
++  memset (&bgexi_work.object[bgexid], 0, sizeof (bgexi_work.object[0]));
++}
++
++/* Determine the intersection of two rectangles R1 and R2.  Return
++   the intersection in *RESULT.  Value is non-zero if RESULT is not
++   empty.  */
++static int
++bgexi_intersect_rectangles (XRectangle *r1, XRectangle *r2, XRectangle *result)
++{
++  XRectangle *left, *right;
++  XRectangle *upper, *lower;
++  int intersection_p = 0;
++  
++  /* Rearrange so that R1 is the left-most rectangle.  */
++  if (r1->x < r2->x)
++    left = r1, right = r2;
++  else
++    left = r2, right = r1;
++
++  /* X0 of the intersection is right.x0, if this is inside R1,
++     otherwise there is no intersection.  */
++  if (right->x <= left->x + left->width)
++    {
++      result->x = right->x;
++      
++      /* The right end of the intersection is the minimum of the
++         the right ends of left and right.  */
++      result->width = (min (left->x + left->width, right->x + right->width)
++                       - result->x);
++
++      /* Same game for Y.  */
++      if (r1->y < r2->y)
++        upper = r1, lower = r2;
++      else
++        upper = r2, lower = r1;
++
++      /* The upper end of the intersection is lower.y0, if this is inside
++         of upper.  Otherwise, there is no intersection.  */
++      if (lower->y <= upper->y + upper->height)
++        {
++          result->y = lower->y;
++	  
++          /* The lower end of the intersection is the minimum of the lower
++             ends of upper and lower.  */
++          result->height = (min (lower->y + lower->height, 
++                                 upper->y + upper->height)
++                            - result->y);
++          intersection_p = 1;
++        }
++    }
++
++  return intersection_p;
++}
++
++/*
++  return true if illegal bgexid.
++ */
++static int
++bgexi_check_bgexid (int bgexid)
++{
++  int result;
++
++  if ((bgexid >= 0) &&
++      (bgexid < BGEXI_OBJECT_LENGTH))
++    {
++      result = 0;
++    }
++  else
++    {
++      result = !0;
++    }
++
++  return result;
++}
++
++static void
++bgexi_set_active_flag (int bgexid, int flag)
++{
++  if (!bgexi_check_bgexid (bgexid))
++    {
++      bgexi_work.object[bgexid].enable_p = flag;
++    }
++}
++
++static int
++bgexi_get_active_flag (int bgexid)
++{
++  int result;
++  if (bgexi_check_bgexid (bgexid))
++    {
++      result = 0;
++    }
++   else
++    {
++      result = bgexi_work.object[bgexid].enable_p;
++    }
++  return result;
++}
++
++static int
++bgexi_get_render_mode (int bgexid)
++{
++  int result;
++  if (bgexi_check_bgexid (bgexid))
++    {
++      result = 0;
++    }
++   else
++    {
++      result = bgexi_work.object[bgexid].fill_pixmap_p;
++    }
++  return result;
++}
++
++static void
++bgexi_set_dynamic_color_flag (int bgexid, int flag)
++{
++  if (!bgexi_check_bgexid (bgexid))
++    {
++      bgexi_work.object[bgexid].dynamic_color_p = flag;
++    }
++}
++
++int
++bgexi_get_dynamic_color_flag (int bgexid)
++{
++  int result;
++  if (bgexi_check_bgexid (bgexid))
++    {
++      result = 0;
++    }
++   else
++    {
++      result = bgexi_work.object[bgexid].dynamic_color_p;
++    }
++  return result;
++}
++
++static void
++bgexi_set_dynamic_color_factor (int bgexid, int factor)
++{
++  if (!bgexi_check_bgexid (bgexid))
++    {
++      if (factor == 0)
++        {
++          factor = BGEXI_DYNAMIC_COLOR_DEFAULT;
++        }
++      if (factor < 1)
++        {
++          factor = 1;
++        }
++      if (factor > 65536)
++        {
++          factor = 65536;
++        }
++      bgexi_work.object[bgexid].dynamic_color_factor = factor;
++    }
++}
++
++static int
++bgexi_get_dynamic_color_factor (int bgexid)
++{
++  int result;
++  if (bgexi_check_bgexid (bgexid))
++    {
++      result = 0;
++    }
++   else
++    {
++      result = bgexi_work.object[bgexid].dynamic_color_factor;
++    }
++  return result;
++}
++
++static void
++bgexi_set_render_mode (int bgexid, int render_mode)
++{
++  if (!bgexi_check_bgexid (bgexid))
++    {
++      bgexi_work.object[bgexid].fill_pixmap_p = render_mode;
++    }
++}
++
++static void
++bgexi_set_color (int bgexid, int r, int g, int b)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      bgexi_work.object[bgexid].r = r;
++      bgexi_work.object[bgexid].g = g;
++      bgexi_work.object[bgexid].b = b;
++    }
++}
++
++static void
++bgexi_clear_image_filename_parameter (int bgexid)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      bgexi_work.object_parameter[bgexid].filename[0] = '\0';
++    }
++}
++
++static void
++bgexi_set_disable_flag (int flag)
++{
++  bgexi_work.disable_p = flag;
++  if (flag)
++    {
++      bgexi_work.trigger_disable_p = 1;
++    }
++  else
++    {
++      bgexi_work.trigger_enable_p = 1;
++    }
++}
++
++static void
++bgexi_set_force_slow_background_pixmap_flag (int flag)
++{
++  bgexi_work.force_slow_background_pixmap_p = flag;
++}
++
++static void
++bgexi_set_trigger_create (int bgexid)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      int i;
++      int length = 0;
++      for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++        {
++          if (bgexi_work.id_list_table[i])
++            {
++              length++;
++            }
++        }
++      if ((bgexid == 0) && (length == 1))
++        bgexi_work.special_trigger_p = 1;
++
++      bgexi_work.object[bgexid].trigger_create_p = 1;
++    }
++}
++
++static void
++bgexi_set_parameter (int bgexid, int fast_background_pixmap_p, int dynamic_color_p, int fill_pixmap_p, int r, int g, int b, char *filename)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      if (bgexid == 0)
++        bgexi_work.object_parameter_fast_background_pixmap_p = fast_background_pixmap_p;
++
++      bgexi_work.object_parameter[bgexid].dynamic_color_p = dynamic_color_p;
++      bgexi_work.object_parameter[bgexid].fill_pixmap_p = fill_pixmap_p;
++      bgexi_work.object_parameter[bgexid].r = r;
++      bgexi_work.object_parameter[bgexid].g = g;
++      bgexi_work.object_parameter[bgexid].b = b;
++      if (filename)
++        strcpy (bgexi_work.object_parameter[bgexid].filename, filename);
++      else
++        bgexi_work.object_parameter[bgexid].filename[0] = '\0';
++    }
++}
++
++static void
++bgexi_set_trigger_destroy (int bgexid)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      bgexi_work.object[bgexid].trigger_destroy_p = 1;
++    }
++}
++
++static void
++bgexi_set_trigger_restart (int bgexid)
++{
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++   else
++    {
++      bgexi_work.object[bgexid].trigger_restart_p = 1;
++    }
++}
++
++/*
++
++bgexid static module
++
++ */
++static int
++bgexid_check_identifier_type_default (void)
++{
++  int i;
++  for (i = 0;i != BGEXID_BUFFER_LENGTH;i++)
++    {
++      if (bgexi_work.id_buffer[i].create_p &&
++          (bgexi_work.id_buffer[i].identifier_type == BGEXID_IDENTIFIER_TYPE_DEFAULT))
++        {
++          return !0;
++        }
++    }
++
++  return 0;
++}
++
++static int
++bgexid_check_identifier_type (char *identifier, int identifier_type)
++{
++  int i;
++  if (identifier)
++    {
++      for (i = 0;i != BGEXID_BUFFER_LENGTH;i++)
++        {
++          if (bgexi_work.id_buffer[i].create_p &&
++              (bgexi_work.id_buffer[i].identifier_type == identifier_type) &&
++              (strcmp (bgexi_work.id_buffer[i].identifier, identifier) == 0))
++            {
++              return !0;
++            }
++        }
++    }
++  return 0;
++}
++
++static int
++bgexid_create (char *identifier, int type)
++{
++  int bgexid;
++
++  for (bgexid = 0;bgexid != BGEXI_OBJECT_LENGTH;bgexid++)
++    {
++      if (bgexi_work.id_list_table[bgexid] == 0)
++        {
++          break;
++        }
++    }
++
++  if (bgexid == BGEXI_OBJECT_LENGTH)
++    {
++      bgexid = -1;
++    }
++  else
++    {
++      int i;
++      for (i = 0;i != BGEXID_BUFFER_LENGTH;i++)
++        {
++          if (bgexi_work.id_buffer[i].create_p == 0)
++            {
++              break;
++            }
++        }
++      if (i == BGEXID_BUFFER_LENGTH)
++        {
++          bgexid = -1;
++        }
++      else
++        {
++          if ((type == BGEXID_IDENTIFIER_TYPE_DEFAULT) &&
++              bgexid_check_identifier_type_default ())
++            {
++              /* default found error */
++              bgexid = -1;
++            }
++          else if (bgexid_check_identifier_type (identifier, type))
++            {
++              /* same type found error */
++              bgexid = -1;
++            }
++          else
++            {
++              if (type == BGEXID_IDENTIFIER_TYPE_DEFAULT)
++                {
++                  if (bgexid != 0)
++                    error ("Illegal bgexid.");
++                  bgexi_work.default_p = 1;
++                  bgexi_work.default_bgexid = bgexid;
++                }
++              bgexi_work.id_buffer[i].create_p = 1;
++              if (identifier)
++                {
++                  strncpy (bgexi_work.id_buffer[i].identifier,
++                           identifier,
++                           sizeof (bgexi_work.id_buffer[0].identifier) - 1);
++                }
++              bgexi_work.id_buffer[i].identifier_type = type;
++              bgexi_work.id_list_table[bgexid] = &bgexi_work.id_buffer[i];
++            }
++        }
++    }
++
++  return bgexid;
++}
++
++static int
++bgexid_destroy (int bgexid)
++{
++  int result = !0;
++
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++  else
++    {
++      if (bgexi_work.id_list_table[bgexid])
++        {
++          bgexi_work.id_list_table[bgexid]->trigger_destroy_p = 1;
++          result = 0;
++        }
++    }
++
++  return result;
++}
++
++static int
++bgexid_add (int bgexid, char *identifier, int type)
++{
++  int result = !0;
++
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++  else
++    {
++      int i;
++      {
++          struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++          if (unit == 0)
++            goto ERROR_NOT_FOUND;
++
++          while (unit)
++            {
++              if (unit->create_p &&
++                  (unit->identifier_type == type) &&
++                  (strcmp (unit->identifier, identifier) == 0))
++                {
++                  goto ERROR_REGISTERD_ALREADY;
++                }
++              unit = unit->next;
++            }
++      }
++      for (i = 0;i != BGEXID_BUFFER_LENGTH;i++)
++        {
++          if (bgexi_work.id_buffer[i].create_p == 0)
++            {
++              break;
++            }
++        }
++      if (i == BGEXID_BUFFER_LENGTH)
++        {
++        }
++      else
++        {
++          if ((type == BGEXID_IDENTIFIER_TYPE_DEFAULT) &&
++              bgexid_check_identifier_type_default ())
++            {
++              /* default found error */
++            }
++          else if (bgexid_check_identifier_type (identifier, type))
++            {
++              /* same type found error */
++            }
++          else
++            {
++              struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++
++              while (unit->next)
++                {
++                  unit = unit->next;
++                }
++              if (type == BGEXID_IDENTIFIER_TYPE_DEFAULT)
++                {
++                  bgexi_work.default_p = 1;
++                  bgexi_work.default_bgexid = bgexid;
++                }
++              bgexi_work.id_buffer[i].create_p = 1;
++              strncpy (bgexi_work.id_buffer[i].identifier,
++                       identifier,
++                       sizeof (bgexi_work.id_buffer[0].identifier) - 1);
++              bgexi_work.id_buffer[i].identifier_type = type;
++              unit->next = &bgexi_work.id_buffer[i];
++              result = 0;
++            }
++        }
++    }
++
++ ERROR_NOT_FOUND:
++ ERROR_REGISTERD_ALREADY:
++  return result;
++}
++
++static int
++bgexid_delete (int bgexid, char *identifier, int type)
++{
++  int result = !0;
++
++  if (bgexi_check_bgexid (bgexid))
++    {
++    }
++  else
++    {
++      struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++      struct bgexid_unit *parent = 0;
++
++      while (unit)
++        {
++          if ((unit->identifier_type == type) &&
++              (strcmp (unit->identifier, identifier) == 0))
++            {
++              if (parent)
++                {
++                  parent->next = unit->next;
++                }
++              else
++                {
++                  bgexi_work.id_list_table[bgexid] = unit->next;
++                }
++              memset (unit, 0, sizeof (*unit));
++              result = 0;
++              if (type == BGEXID_IDENTIFIER_TYPE_DEFAULT)
++                {
++                  bgexi_work.default_p = 0;
++                }
++              break;
++            }
++          parent = unit;
++          unit = unit->next;
++        }
++    }
++
++  return result;
++}
++
++static int
++bgexid_get_identifier_type (char *symbol_cstring)
++{
++  int result;
++
++  if (strcmp ("bgex-identifier-type-default", symbol_cstring) == 0)
++    {
++      result = BGEXID_IDENTIFIER_TYPE_DEFAULT;
++    }
++  else if (strcmp ("bgex-identifier-type-major-mode", symbol_cstring) == 0)
++    {
++      result = BGEXID_IDENTIFIER_TYPE_MAJOR_MODE;
++    }
++  else if (strcmp ("bgex-identifier-type-major-mode-regexp", symbol_cstring) == 0)
++    {
++      result = BGEXID_IDENTIFIER_TYPE_MAJOR_MODE_REGEXP;
++    }
++  else if (strcmp ("bgex-identifier-type-buffer-name", symbol_cstring) == 0)
++    {
++      result = BGEXID_IDENTIFIER_TYPE_BUFFER_NAME;
++    }
++  else if (strcmp ("bgex-identifier-type-buffer-name-regexp", symbol_cstring) == 0)
++    {
++      result = BGEXID_IDENTIFIER_TYPE_BUFFER_NAME_REGEXP;
++    }
++  else
++    {
++      result = BGEXID_IDENTIFIER_TYPE_ERROR;
++    }
++
++  return result;
++}
++
++static int
++bgexi_fill_color (struct window *window, int x, int y, int w, int h, int *rgba, int bgexid)
++{
++  int result = 0;
++  struct frame *f = XFRAME (WINDOW_FRAME (window));
++
++  if (window)
++    {
++      Colormap cmap = FRAME_X_COLORMAP (f);
++      XColor color;
++
++      if (rgba)
++        {
++          int factor = bgexi_work.object[bgexid].dynamic_color_factor / 3;
++          int tmp;
++          tmp = (bgexi_work.object[bgexid].r * *(rgba + 0) / 4) / factor;
++          if (tmp > 65535)
++            tmp = 65535;
++          color.red = tmp;
++          tmp = (bgexi_work.object[bgexid].g * *(rgba + 1) / 4) / factor;
++          if (tmp > 65535)
++            tmp = 65535;
++          color.green = tmp;
++          tmp = (bgexi_work.object[bgexid].b * *(rgba + 2) / 4) / factor;
++          if (tmp > 65535)
++            tmp = 65535;
++          color.blue = tmp;
++        }
++      else
++        {
++          color.red = bgexi_work.object[bgexid].r;
++          color.green = bgexi_work.object[bgexid].g;
++          color.blue = bgexi_work.object[bgexid].b;
++        }
++
++      if (XAllocColor (FRAME_X_DISPLAY (f), cmap, &color))
++        {
++          GC gc = XCreateGC (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), 0, 0);
++          XSetForeground (FRAME_X_DISPLAY (f), gc, color.pixel);
++          XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
++                          x, y, w, h);
++          XFreeGC (FRAME_X_DISPLAY (f), gc);
++        }
++      else
++        {
++          result = !0;
++        }
++    }
++  else
++    {
++      result = !0;
++    }
++
++  return result;
++}
++
++/*
++
++bgex global module
++
++ */
++
++int
++bgexi_fast_p (void)
++{
++  int result;
++
++  if (bgexi_work.force_slow_background_pixmap_p)
++    {
++      result = 0;
++    }
++  else
++    {
++      result = bgexi_work.fast_background_pixmap_p;
++    }
++
++  return result;
++}
++
++int
++bgexi_only_fast_p (void)
++{
++  int result = 0;
++
++  if (!bgexi_work.force_slow_background_pixmap_p)
++    {
++      if (bgexi_work.fast_background_pixmap_p)
++        {
++          int i;
++          int length = 0;
++          for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++            {
++              if (bgexi_work.object[i].create_p &&
++                  !bgexi_work.object[i].failed_p &&
++                  bgexi_work.object[i].enable_p)
++                {
++                  length++;
++                }
++            }
++
++          if (length == 1)
++            {
++              result = 1;
++            }
++        }
++    }
++
++  return result;
++}
++
++/*
++  search all bgexid if bgexid < 0
++ */
++int
++bgexi_p (int bgexid)
++{
++  int result = 0;
++
++  if (bgexi_work.disable_p &&
++      !bgexi_work.trigger_enable_p &&
++      !bgexi_work.trigger_disable_p)
++    {
++      return result;
++    }
++
++  if (bgexid < 0)
++    {
++      int i;
++      for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++        {
++          if (bgexi_work.id_list_table[i] &&
++              bgexi_work.id_list_table[i]->create_p)
++            {
++              if (bgexi_work.object[i].create_p &&
++                  (!bgexi_work.object[i].failed_p) &&
++                  bgexi_work.object[i].enable_p)
++                {
++                  result = !0;
++                  break;
++                }
++            }
++        }
++    }
++  else
++    {
++      if (!bgexi_check_bgexid (bgexid))
++        {
++          if (bgexi_work.object[bgexid].create_p &&
++              !bgexi_work.object[bgexid].failed_p)
++            result = bgexi_work.object[bgexid].enable_p;
++        }
++    }
++
++  return result;
++}
++
++static int
++bgexi_get_bgexid (struct window *window)
++{
++  int bgexid;
++
++  if (window == 0)
++    {
++      bgexid = -1;
++    }
++  else
++    {
++      for (bgexid = 0;bgexid != BGEXI_OBJECT_LENGTH;bgexid++)
++        {
++          if (bgexi_work.id_list_table[bgexid] &&
++              bgexi_work.id_list_table[bgexid]->create_p)
++            {
++              struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++              Lisp_Object obj;
++              struct buffer *b = XBUFFER (window->contents);
++              while (unit)
++                {
++                  switch (unit->identifier_type)
++                    {
++                    case BGEXID_IDENTIFIER_TYPE_DEFAULT:
++                      break;
++
++                    case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE:
++                      obj = BVAR (b, mode_name);
++                      if (STRINGP (obj))
++                        {
++                          BGEXI_DBP ("bgexid:%2d  major-mode:%s  ,  %s\n",
++                                     bgexid,
++                                     unit->identifier,
++                                     SDATA (BVAR (b, mode_name)));
++                          if (strcmp (unit->identifier, SDATA (BVAR (b, mode_name))) == 0)
++                            {
++                              goto FOUND;
++                            }
++                        }
++                      break;
++
++                    case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE_REGEXP:
++                      obj = BVAR (b, mode_name);
++                      if (STRINGP (obj))
++                        {
++                          BGEXI_DBP ("bgexid:%2d  major-mode:%s  ,  %s\n",
++                                     bgexid,
++                                     unit->identifier,
++                                     SDATA (BVAR (b, mode_name)));
++                          if (!NILP (Fstring_match (make_string (unit->identifier, strlen (unit->identifier)),
++                                                    BVAR (b, mode_name),
++                                                    Qnil)))
++                            {
++                              goto FOUND;
++                            }
++                        }
++                      break;
++
++                    case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME:
++                      obj = BVAR (b, name);
++                      if (STRINGP (obj))
++                        {
++                          BGEXI_DBP ("bgexid:%2d  buffer-name:%s  ,  %s\n",
++                                     bgexid,
++                                     unit->identifier,
++                                     SDATA (BVAR (b, name)));
++                          if (strcmp (unit->identifier, SDATA (BVAR (b, name))) == 0)
++                            {
++                              goto FOUND;
++                            }
++                        }
++                      break;
++
++                    case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME_REGEXP:
++                      obj = BVAR (b, name);
++                      if (STRINGP (obj))
++                        {
++                          BGEXI_DBP ("bgexid:%2d  buffer-name:%s  ,  %s\n",
++                                     bgexid,
++                                     unit->identifier,
++                                     SDATA (BVAR (b, name)));
++                          if (!NILP (Fstring_match (make_string (unit->identifier, strlen (unit->identifier)),
++                                                    BVAR (b, name),
++                                                    Qnil)))
++                            {
++                              goto FOUND;
++                            }
++                        }
++                      break;
++
++                    default:
++                      BGEXI_DBP ("unknown identifier_type:%d\n",unit->identifier_type);
++                      break;
++                    }
++                  unit = unit->next;
++                }
++            }
++        }
++    FOUND:
++      if (bgexid == BGEXI_OBJECT_LENGTH)
++        {
++          if (bgexi_work.default_p)
++            {
++              bgexid = bgexi_work.default_bgexid;
++            }
++          else
++            {
++              bgexid = -1;
++            }
++        }
++    }
++
++  return bgexid;
++}
++
++static void
++bgexi_redraw_window_internal (struct window *window)
++{
++  window->bgexi_redisplay_p = 1;
++}
++
++static int
++bgexi_foreach_window_1 (struct window *window)
++{
++  int cont;
++
++  for (cont = 1; window && cont;)
++    {
++      if (WINDOWP (window->contents))
++        cont = bgexi_foreach_window_1 (XWINDOW (window->contents));
++
++      window->bgexi_redisplay_p = 1;
++
++      window = NILP (window->next) ? 0 : XWINDOW (window->next);
++    }
++
++  return cont;
++}
++
++void
++bgexi_redraw_all (void)
++{
++  struct frame *f = SELECTED_FRAME ();
++  if (f && FRAME_X_P (f) && FRAME_LIVE_P (f))
++    {
++      bgexi_foreach_window_1 (XWINDOW (f->root_window));
++    }
++}
++
++int
++bgexi_get_enable_bgexid (struct window *window)
++{
++  int result = bgexi_get_bgexid (window);
++
++  if (result >= 0)
++    {
++      if (!bgexi_work.object[result].create_p ||
++          !bgexi_work.object[result].enable_p ||
++          bgexi_work.object[result].failed_p)
++        {
++          result = -1;
++        }
++    }
++
++  return result;
++}
++
++int bgexi_special_trigger_p (void)
++{
++  return bgexi_work.special_trigger_p;
++}
++
++int bgexi_clear_special_trigger_p (void)
++{
++  return bgexi_work.special_trigger_p = 0;
++}
++
++int
++bgexi_fill_rectangle (GC gc, struct window *window, int x, int y, int w, int h, int *rgba)
++{
++  int result = 0;
++  int bgexid;
++  struct bgexi_pixmap_table *table = 0;
++  int illegal_display_p;
++  struct frame *f;
++
++
++  if (window == 0)
++    return 1;
++
++
++  f = XFRAME (WINDOW_FRAME(window));
++
++
++  /*
++    check special internal event
++  */
++  if (bgexi_work.trigger_disable_p)
++    {
++      bgexid = bgexi_get_bgexid (window);
++      if (bgexid < 0)
++        {
++          BGEXI_DBP ("trigger_disable_p  bgexid not found.\n");
++        }
++      else
++        {
++          if (bgexid == 0)
++            {
++              bgexi_work.trigger_disable_p = 0;
++              if (f->bgexi_background_pixmap_p &&
++                  bgexi_work.object[bgexid].fill_pixmap_p &&
++                  bgexi_work.fast_background_pixmap_p)
++                {
++                  XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), None);
++                  XSetWindowBackground (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), FRAME_BACKGROUND_PIXEL (f));
++                  f->bgexi_background_pixmap_initialized_p = 0;
++                  f->bgexi_background_pixmap_p = 0;
++                }
++            }
++        }
++    }
++
++
++  if (bgexi_work.disable_p)
++    return 1;
++
++
++  /*
++    get illegal_display_p
++   */
++  if ((bgexi_work.display_name[0] != '\0') &&
++      (strcmp (DisplayString (FRAME_X_DISPLAY (f)), bgexi_work.display_name) != 0))
++    {
++      illegal_display_p = 1;
++    }
++  else
++    {
++      illegal_display_p = 0;
++    }
++
++
++  /*
++    check bgexid destroy only if !illegal_display_p
++  */
++  if (!illegal_display_p)
++    {
++      int i;
++      for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++        {
++          if (bgexi_work.id_list_table[i] &&
++              bgexi_work.id_list_table[i]->trigger_destroy_p)
++            {
++              struct bgexid_unit *unit = bgexi_work.id_list_table[i];
++
++              while (unit)
++                {
++                  struct bgexid_unit *next = unit->next;
++                  BGEXI_DBP ("    destroy %p\n",unit);
++                  if (unit->identifier_type == BGEXID_IDENTIFIER_TYPE_DEFAULT)
++                    {
++                      bgexi_work.default_p = 0;
++                    }
++                  memset (unit, 0, sizeof (*unit));
++                  unit = next;
++                }
++
++              bgexi_destroy (i, f);
++              bgexi_work.id_list_table[i] = 0;
++            }
++        }
++    }
++
++
++  /*
++    get bgexid
++   */
++  bgexid = bgexi_get_bgexid (window);
++  if (bgexid < 0)
++    {
++      BGEXI_DBP ("return by bgexid not found.\n");
++      return 1;
++    }
++
++
++  /*
++    check argument
++  */
++  if ((w < 1) || (h < 1) || (x > 16384) || (y > 8192))
++    {
++      BGEXI_DBP ("Illegal coordinates  xywh:%d,%d,%d,%d  rgba:%p\n",
++                 x, y, w, h,
++                 rgba);
++      if (rgba)
++        {
++          BGEXI_DBP ("    rgba:%d,%d,%d,%d\n",
++                     *(rgba + 0),
++                     *(rgba + 1),
++                     *(rgba + 2),
++                     *(rgba + 3));
++        }
++      else
++        {
++          BGEXI_DBP ("    rgba:0\n");
++        }
++      return 1;
++    }
++
++
++  /*
++    fill color for other display
++   */
++  if (illegal_display_p)
++    return bgexi_fill_color (window,
++                             x, y, w, h, rgba, bgexid);
++
++
++  /*
++    check internal event
++  */
++  if (bgexi_work.trigger_enable_p)
++    {
++      bgexi_work.trigger_enable_p = 0;
++      if ((bgexid == 0) &&
++          (f->bgexi_background_pixmap_p == 0) &&
++          bgexi_work.object[bgexid].fill_pixmap_p &&
++          bgexi_work.fast_background_pixmap_p)
++        {
++          if (!f->bgexi_background_pixmap_p)
++            {
++              XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f),
++                                          FRAME_X_WINDOW (f),
++                                          bgexi_work.object[bgexid].pixmap);
++              f->bgexi_background_pixmap_p = 1;
++            }
++        }
++    }
++
++  if (bgexi_work.object[bgexid].trigger_restart_p)
++    {
++      bgexi_destroy (bgexid, f);
++      bgexi_create (bgexid, f,
++                    3*65536/4);
++      bgexi_create_image (&bgexi_work.object[bgexid], f);
++      if ((bgexid == 0) &&
++          bgexi_work.object[bgexid].fill_pixmap_p &&
++          bgexi_work.fast_background_pixmap_p)
++        {
++          BGEXI_DBP ("    try fill XSetWindowBackgroundPixmap () : bbpp:%d\n",
++                     f->bgexi_background_pixmap_p);
++          if (!f->bgexi_background_pixmap_p)
++            {
++              BGEXI_DBP ("by fill XSetWindowBackgroundPixmap ()\n");
++              XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f),
++                                          FRAME_X_WINDOW (f),
++                                          bgexi_work.object[bgexid].pixmap);
++              f->bgexi_background_pixmap_p = 1;
++            }
++        }
++    }
++
++  if (bgexi_work.object[bgexid].trigger_destroy_p)
++    {
++      bgexi_work.object[bgexid].trigger_destroy_p = 0;
++      bgexi_destroy (bgexid, f);
++    }
++
++  if (bgexi_work.object[bgexid].trigger_create_p)
++    {
++      bgexi_work.object[bgexid].trigger_create_p = 0;
++      bgexi_create (bgexid, f,
++                   3*65536/4);
++      bgexi_create_image (&bgexi_work.object[bgexid], f);
++      if ((bgexid == 0) &&
++          bgexi_work.object[bgexid].fill_pixmap_p &&
++          bgexi_work.fast_background_pixmap_p)
++        {
++          BGEXI_DBP ("    try fill XSetWindowBackgroundPixmap () : bbpp:%d\n",
++                     f->bgexi_background_pixmap_p);
++          if (!f->bgexi_background_pixmap_p)
++            {
++              BGEXI_DBP ("by fill XSetWindowBackgroundPixmap ()\n");
++              XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f),
++                                          FRAME_X_WINDOW (f),
++                                          bgexi_work.object[bgexid].pixmap);
++              f->bgexi_background_pixmap_p = 1;
++            }
++        }
++    }
++
++
++  /*
++    check flag
++  */
++  if (!bgexi_work.object[bgexid].create_p ||
++      !bgexi_work.object[bgexid].enable_p)
++    {
++      BGEXI_DBP ("return by enable_p:%d or create_p:%d.\n",
++                 bgexi_work.object[bgexid].enable_p,
++                 bgexi_work.object[bgexid].create_p);
++      return 1;
++    }
++
++  if ((bgexid == 0) && bgexi_fast_p () && (rgba == 0))
++    {
++      BGEXI_DBP ("return by fast_background_pixmap_p\n");
++      return 1;
++    }
++
++  if (!bgexi_work.object[bgexid].dynamic_color_p && rgba)
++    {
++      BGEXI_DBP ("return by dynamic_color_p\n");
++      return 1;
++    }
++
++  if (bgexi_work.object[bgexid].failed_p)
++    {
++      BGEXI_DBP ("global failed_p\n");
++      return 1;
++    }
++
++
++  /*
++    fill color
++   */
++  if (!bgexi_work.object[bgexid].fill_pixmap_p)
++    return bgexi_fill_color (window,
++                             x, y, w, h, rgba, bgexid);
++
++
++  /*
++    render Pixmap
++  */
++  if (bgexi_work.object[bgexid].create_image_p)
++    {
++      int w_block = w / bgexi_work.object[bgexid].width;
++      int h_block = h / bgexi_work.object[bgexid].height;
++      int x_block = x / bgexi_work.object[bgexid].width;
++      int y_block = y / bgexi_work.object[bgexid].height;
++      int ly,lx;
++      XRectangle r1,r2,res;
++
++      /* table->last_use_tick = bgexi_work.object[bgexid].current_tick; */
++
++      r1.x = x;
++      r1.y = y;
++      r1.width = w;
++      r1.height = h;
++      r2.width = bgexi_work.object[bgexid].width;
++      r2.height = bgexi_work.object[bgexid].height;
++
++      for (ly = y_block;ly <= y_block + h_block + 1;ly++)
++        {
++          for (lx = x_block;lx <= x_block + w_block + 1;lx++)
++            {
++              r2.x = lx * bgexi_work.object[bgexid].width;
++              r2.y = ly * bgexi_work.object[bgexid].height;
++              if (bgexi_intersect_rectangles (&r1, &r2, &res))
++                {
++                  BGEXI_DBP ("XCopyArea  xywh:%d,%d,%d,%d\n",
++                             res.x % bgexi_work.object[bgexid].width,
++                             res.y % bgexi_work.object[bgexid].height,
++                             res.width,
++                             res.height);
++                  if (rgba == 0)
++                    {
++                      XCopyArea (FRAME_X_DISPLAY (f), bgexi_work.object[bgexid].pixmap, FRAME_X_WINDOW (f), gc,
++                                 res.x % bgexi_work.object[bgexid].width,
++                                 res.y % bgexi_work.object[bgexid].height,
++                                 res.width,
++                                 res.height,
++                                 res.x, res.y);
++                    }
++                  else
++                    {
++                      if ((res.width > 0) &&
++                          (res.height > 0))
++                        {
++                          bgexi_image_convert (f,
++                                               bgexi_work.object[bgexid].image,
++                                               bgexi_work.object[bgexid].work_image,
++                                               rgba,
++                                               bgexi_work.object[bgexid].dynamic_color_factor,
++                                               bgexi_work.object[bgexid].width,
++                                               bgexi_work.object[bgexid].height,
++                                               res.x % bgexi_work.object[bgexid].width,
++                                               res.y % bgexi_work.object[bgexid].height,
++                                               res.width,
++                                               res.height);
++                          XPutImage (FRAME_X_DISPLAY (f),
++                                     FRAME_X_WINDOW (f),
++                                     gc,
++                                     bgexi_work.object[bgexid].work_image,
++                                     0,
++                                     0,
++                                     res.x,
++                                     res.y,
++                                     res.width,
++                                     res.height);
++                        }
++                    }
++                }
++            }
++        }
++    }
++  else
++    {
++      BGEXI_DBP ("table failed_p true\n");
++      result = !0;
++    }
++
++  return result;
++}
++
++void
++bgexi_set_overstrike_flag (int overstrike_p)
++{
++  bgexi_work.overstrike_p = overstrike_p;
++}
++
++int
++bgexi_overstrike_p (void)
++{
++  return bgexi_work.overstrike_p;
++}
++
++/*
++
++bgexid lisp function
++
++ */
++DEFUN ("bgexid-create",
++       Fbgexid_create, Sbgexid_create,
++       2, 2, 0,
++       doc: /* Create BGEXID.
++             */)
++     (Lisp_Object lisp_identifier, Lisp_Object lisp_identifier_type)
++{
++  Lisp_Object result = Qnil;
++  char *identifier;
++  int type;
++  int bgexid;
++
++  CHECK_SYMBOL (lisp_identifier_type);
++
++  type = bgexid_get_identifier_type (SDATA (XSYMBOL (lisp_identifier_type)->name));
++  if (type == BGEXID_IDENTIFIER_TYPE_ERROR)
++    error ("Invalid symbol.");
++
++  if (type == BGEXID_IDENTIFIER_TYPE_DEFAULT)
++    {
++      identifier = 0;
++    }
++  else
++    {
++      CHECK_STRING (lisp_identifier);
++      identifier = SDATA (lisp_identifier);
++    }
++
++  bgexid = bgexid_create (identifier, type);
++  if (bgexid >= 0)
++    {
++      XSETINT (result, bgexid);
++    }
++
++  return result;
++}
++
++DEFUN ("bgexid-destroy",
++       Fbgexid_destroy, Sbgexid_destroy,
++       1, 1, 0,
++       doc: /* Destroy BGEXID.
++return Non-nil if error.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexid_destroy (bgexid))
++    {
++      result = Qt;
++    }
++
++  return result;
++}
++
++DEFUN ("bgexid-get-bgexid-list",
++       Fbgexid_get_bgexid_list, Sbgexid_get_bgexid_list,
++       0, 0, 0,
++       doc: /* get active bgexid list
++             */)
++     (void)
++{
++  Lisp_Object result = Qnil;
++
++  int i;
++  for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++    {
++      if (bgexi_work.id_list_table[i] &&
++          bgexi_work.id_list_table[i]->create_p)
++        {
++          Lisp_Object tmp;
++          XSETINT (tmp, i);
++          result = Fcons (tmp, result);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexid-add",
++       Fbgexid_add, Sbgexid_add,
++       3, 3, 0,
++       doc: /* Add BGEXID.
++return Non-nil if error.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object lisp_identifier, Lisp_Object lisp_identifier_type)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++  char *identifier;
++  int type;
++
++  CHECK_NUMBER (lisp_bgexid);
++  CHECK_STRING (lisp_identifier);
++  CHECK_SYMBOL (lisp_identifier_type);
++
++  type = bgexid_get_identifier_type (SDATA (XSYMBOL (lisp_identifier_type)->name));
++  if (type == BGEXID_IDENTIFIER_TYPE_ERROR)
++    error ("Invalid symbol.");
++  bgexid = XINT (lisp_bgexid);
++  identifier = SDATA (lisp_identifier);
++
++  if (bgexid_add (bgexid, identifier, type))
++    {
++      result = Qt;
++    }
++
++  return result;
++}
++
++DEFUN ("bgexid-delete",
++       Fbgexid_delete, Sbgexid_delete,
++       3, 3, 0,
++       doc: /* Delete BGEXID.
++return Non-nil if error.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object lisp_identifier, Lisp_Object lisp_identifier_type)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++  char *identifier;
++  int type;
++
++  CHECK_NUMBER (lisp_bgexid);
++  CHECK_STRING (lisp_identifier);
++  CHECK_SYMBOL (lisp_identifier_type);
++
++  type = bgexid_get_identifier_type (SDATA (XSYMBOL (lisp_identifier_type)->name));
++  if (type == BGEXID_IDENTIFIER_TYPE_ERROR)
++    error ("Invalid symbol.");
++  bgexid = XINT (lisp_bgexid);
++  identifier = SDATA (lisp_identifier);
++
++  if (bgexid_delete (bgexid, identifier, type))
++    {
++      result = Qt;
++    }
++
++  return result;
++}
++
++DEFUN ("bgexid-get-identifier",
++       Fbgexid_get_identifier, Sbgexid_get_identifier,
++       1, 1, 0,
++       doc: /* get identifier
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++  bgexid = XINT (lisp_bgexid);
++
++  if (bgexi_work.id_list_table[bgexid] &&
++      bgexi_work.id_list_table[bgexid]->create_p)
++    {
++      struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++      while (unit)
++        {
++          Lisp_Object sym;
++
++          switch (unit->identifier_type)
++            {
++            case BGEXID_IDENTIFIER_TYPE_DEFAULT:
++              sym = intern ("bgex-identifier-type-default");
++              break;
++
++            case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE:
++              sym = intern ("bgex-identifier-type-major-mode");
++              break;
++
++            case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE_REGEXP:
++              sym = intern ("bgex-identifier-type-major-mode-regexp");
++              break;
++
++            case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME:
++              sym = intern ("bgex-identifier-type-buffer-name");
++              break;
++
++            case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME_REGEXP:
++              sym = intern ("bgex-identifier-type-buffer-name-regexp");
++              break;
++
++            default:
++              error ("Fatai:unknown identifier_type");
++              break;
++            }
++          result = Fcons ( Fcons (sym, build_string (unit->identifier)), result);
++
++          unit = unit->next;
++        }
++    }
++
++  return result;
++}
++
++/*
++
++bgex lisp function
++
++ */
++DEFUN ("bgexi-create",
++       Fbgexi_create, Sbgexi_create,
++       4, 5, 0,
++       doc: /* Create BGEX object.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object render_mode, Lisp_Object dynamic_mode, Lisp_Object color, Lisp_Object filename)
++{
++  Lisp_Object result = Qt;
++  int bgexid;
++  int r,g,b;
++
++  CHECK_NUMBER (lisp_bgexid);
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      int error_p = 0;
++
++      if (NILP (filename))
++        {
++          bgexi_clear_image_filename_parameter (bgexid);
++        }
++      else
++        {
++          CHECK_STRING (filename);
++          if (!(strlen (SDATA (filename)) < sizeof (bgexi_work.object[0].filename) - 1))
++            {
++              error_p = !0;
++            }
++        }
++
++      if (STRINGP (color))
++        {
++          struct frame *f = SELECTED_FRAME ();
++          if (f && FRAME_X_P (f) && FRAME_LIVE_P (f))
++            {
++              XColor xcolor;
++              if (x_defined_color (f, SDATA (color), &xcolor, 0))
++                {
++                  r = xcolor.red;
++                  g = xcolor.green;
++                  b = xcolor.blue;
++                }
++              else
++                {
++                  error ("Illegal color name \"%s\"", SDATA (color));
++                  r = g = b = 0; /* KILLWARNING */
++                }
++            }
++          else
++            {
++              error ("Cant get frame");
++              r = g = b = 0; /* KILLWARNING */
++            }
++        }
++      else
++        {
++          if (XINT (Flength (color)) != 3)
++            {
++              r = 65535;
++              g = 65535;
++              b = 65535;
++            }
++          else
++            {
++              int tmp[3];
++              int i;
++
++              for (i = 0;i != 3;i++)
++                {
++                  tmp[i] = XINT (Fnth (make_number (i), color));
++                  if ((tmp[i] < 0) ||
++                      (tmp[i] > 65535))
++                    {
++                      break;
++                    }
++                }
++
++              if (i != 3)
++                {
++                  r = 65535;
++                  g = 65535;
++                  b = 65535;
++                }
++              else
++                {
++                  r = tmp[0];
++                  g = tmp[1];
++                  b = tmp[2];
++                }
++            }
++        }
++
++      BGEXI_DBP ("bgexid:%2d bgexi-create  error:%d\n", bgexid, error_p);
++      if (!error_p &&
++          !bgexi_work.object[bgexid].create_p &&
++          !bgexi_work.object[bgexid].trigger_create_p &&
++          !bgexi_work.object[bgexid].trigger_destroy_p)
++        {
++          int fast_background_pixmap_p = 0;
++          int fill_pixmap_p;
++          int dynamic_color_p;
++          char *parameter_filename = 0;
++          if (NILP (render_mode))
++            {
++              fill_pixmap_p = 0;
++            }
++          else
++            {
++              fill_pixmap_p = !0;
++            }
++          if (NILP (dynamic_mode))
++            {
++              dynamic_color_p = 0;
++            }
++          else
++            {
++              dynamic_color_p = !0;
++            }
++
++          if ((bgexid == 0) &&
++              bgexid_check_identifier_type_default () &&
++              fill_pixmap_p)
++            {
++              fast_background_pixmap_p = 1;
++            }
++
++          if (NILP (filename))
++            {
++            }
++          else
++            {
++              if (strlen (SDATA (filename)) < sizeof (bgexi_work.object[0].filename) - 1)
++                parameter_filename = SDATA (filename);
++            }
++
++          result = Qnil;
++          bgexi_set_parameter (bgexid,
++                               fast_background_pixmap_p, dynamic_color_p, fill_pixmap_p,
++                               r, g, b, parameter_filename);
++          bgexi_set_trigger_create (bgexid);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-destroy",
++       Fbgexi_destroy, Sbgexi_destroy,
++       1, 1, 0,
++       doc: /* Destroy BGEX object.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qt;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      if (bgexi_work.object[bgexid].create_p &&
++          !bgexi_work.object[bgexid].trigger_create_p &&
++          !bgexi_work.object[bgexid].trigger_destroy_p)
++        {
++          result = Qnil;
++          bgexi_set_trigger_destroy (bgexid);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-restart",
++       Fbgexi_restart, Sbgexi_restart,
++       4, 5, 0,
++       doc: /* Restart BGEX object.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object render_mode, Lisp_Object dynamic_mode, Lisp_Object color, Lisp_Object filename)
++{
++  Lisp_Object result = Qt;
++  int bgexid;
++  int r,g,b;
++
++  CHECK_NUMBER (lisp_bgexid);
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      int error_p = 0;
++
++      if (NILP (filename))
++        {
++          bgexi_clear_image_filename_parameter (bgexid);
++        }
++      else
++        {
++          CHECK_STRING (filename);
++          if (!(strlen (SDATA (filename)) < sizeof (bgexi_work.object[0].filename) - 1))
++            {
++              error_p = !0;
++            }
++        }
++
++      if (STRINGP (color))
++        {
++          struct frame *f = SELECTED_FRAME ();
++          if (f && FRAME_X_P (f) && FRAME_LIVE_P (f))
++            {
++              XColor xcolor;
++              if (x_defined_color (f, SDATA (color), &xcolor, 0))
++                {
++                  r = xcolor.red;
++                  g = xcolor.green;
++                  b = xcolor.blue;
++                }
++              else
++                {
++                  error ("Illegal color name \"%s\"", SDATA (color));
++                  r = g = b = 0; /* KILLWARNING */
++                }
++            }
++          else
++            {
++              error ("Cant get frame");
++              r = g = b = 0; /* KILLWARNING */
++            }
++        }
++      else
++        {
++          if (XINT (Flength (color)) != 3)
++            {
++              r = 65535;
++              g = 65535;
++              b = 65535;
++            }
++          else
++            {
++              int tmp[3];
++              int i;
++
++              for (i = 0;i != 3;i++)
++                {
++                  tmp[i] = XINT (Fnth (make_number (i), color));
++                  if ((tmp[i] < 0) ||
++                      (tmp[i] > 65535))
++                    {
++                      break;
++                    }
++                }
++
++              if (i != 3)
++                {
++                  r = 65535;
++                  g = 65535;
++                  b = 65535;
++                }
++              else
++                {
++                  r = tmp[0];
++                  g = tmp[1];
++                  b = tmp[2];
++                }
++            }
++        }
++
++      BGEXI_DBP ("bgexi-restart  error:%d\n", error_p);
++      if (!error_p &&
++          bgexi_work.object[bgexid].create_p &&
++          !bgexi_work.object[bgexid].trigger_create_p &&
++          !bgexi_work.object[bgexid].trigger_destroy_p)
++        {
++          int fast_background_pixmap_p = 0;
++          int fill_pixmap_p;
++          int dynamic_color_p;
++          char *parameter_filename = 0;
++          if (NILP (render_mode))
++            {
++              fill_pixmap_p = 0;
++            }
++          else
++            {
++              fill_pixmap_p = !0;
++            }
++          if (NILP (dynamic_mode))
++            {
++              dynamic_color_p = 0;
++            }
++          else
++            {
++              dynamic_color_p = !0;
++            }
++
++          if ((bgexid == 0) &&
++              bgexid_check_identifier_type_default () &&
++              fill_pixmap_p)
++            {
++              fast_background_pixmap_p = 1;
++            }
++
++          if (NILP (filename))
++            {
++            }
++          else
++            {
++              if (strlen (SDATA (filename)) < sizeof (bgexi_work.object[0].filename) - 1)
++                parameter_filename = SDATA (filename);
++            }
++
++          result = Qnil;
++          bgexi_set_parameter (bgexid,
++                               fast_background_pixmap_p, dynamic_color_p, fill_pixmap_p,
++                               r, g, b, parameter_filename);
++          bgexi_set_trigger_restart (bgexid);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-enable",
++       Fbgexi_enable, Sbgexi_enable,
++       0, 0, 0,
++       doc: /* enable BGEX
++             */)
++     (void)
++{
++  bgexi_set_disable_flag (0);
++  return Qnil;
++}
++
++DEFUN ("bgexi-disable",
++       Fbgexi_disable, Sbgexi_disable,
++       0, 0, 0,
++       doc: /* disable BGEX
++             */)
++     (void)
++{
++  bgexi_set_disable_flag (1);
++  return Qnil;
++}
++
++DEFUN ("bgexi-set-draw-strict",
++       Fbgexi_set_draw_strict, Sbgexi_set_draw_strict,
++       0, 0, 0,
++       doc: /* set strict draw mode.(default)
++             */)
++     (void)
++{
++  bgexi_set_force_slow_background_pixmap_flag (1);
++  return Qnil;
++}
++
++DEFUN ("bgexi-set-draw-fast",
++       Fbgexi_set_draw_fast, Sbgexi_set_draw_fast,
++       0, 0, 0,
++       doc: /* set fast draw mode.
++             */)
++     (void)
++{
++  bgexi_set_force_slow_background_pixmap_flag (0);
++  return Qnil;
++}
++
++DEFUN ("bgexi-get-bgexid-list",
++       Fbgexi_get_bgexid_list, Sbgexi_get_bgexid_list,
++       0, 0, 0,
++       doc: /* get active bgexid list
++             */)
++     (void)
++{
++  Lisp_Object result = Qnil;
++
++  int i;
++  for (i = 0;i != BGEXI_OBJECT_LENGTH;i++)
++    {
++      if (bgexi_work.object[i].create_p)
++        {
++          Lisp_Object tmp;
++          XSETINT (tmp, i);
++          result = Fcons (tmp, result);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-identifier",
++       Fbgexi_get_identifier, Sbgexi_get_identifier,
++       1, 1, 0,
++       doc: /* get identifier
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++  bgexid = XINT (lisp_bgexid);
++
++  if (bgexi_check_bgexid (bgexid))
++    {
++      result = 0;
++    }
++  else
++    {
++      if (bgexi_work.id_list_table[bgexid] &&
++          bgexi_work.id_list_table[bgexid]->create_p &&
++          bgexi_work.object[bgexid].create_p &&
++          !bgexi_work.object[bgexid].failed_p)
++        {
++          struct bgexid_unit *unit = bgexi_work.id_list_table[bgexid];
++          while (unit)
++            {
++              Lisp_Object sym;
++
++              switch (unit->identifier_type)
++                {
++                case BGEXID_IDENTIFIER_TYPE_DEFAULT:
++                  sym = intern ("bgex-identifier-type-default");
++                  break;
++
++                case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE:
++                  sym = intern ("bgex-identifier-type-major-mode");
++                  break;
++
++                case BGEXID_IDENTIFIER_TYPE_MAJOR_MODE_REGEXP:
++                  sym = intern ("bgex-identifier-type-major-mode-regexp");
++                  break;
++
++                case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME:
++                  sym = intern ("bgex-identifier-type-buffer-name");
++                  break;
++
++                case BGEXID_IDENTIFIER_TYPE_BUFFER_NAME_REGEXP:
++                  sym = intern ("bgex-identifier-type-buffer-name-regexp");
++                  break;
++
++                default:
++                  error ("Fatai:unknown identifier_type");
++                  break;
++                }
++              result = Fcons ( Fcons (sym, build_string (unit->identifier)), result);
++
++              unit = unit->next;
++            }
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-set-active-flag",
++       Fbgexi_set_active_flag, Sbgexi_set_active_flag,
++       2, 2, 0,
++       doc: /* Set active flag.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object flag)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      result = bgexi_get_active_flag (bgexid) ? Qt : Qnil;
++      bgexi_set_active_flag (bgexid, !NILP (flag));
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-active-flag",
++       Fbgexi_get_active_flag, Sbgexi_get_active_flag,
++       1, 1, 0,
++       doc: /* Return t if BGEX object was enabled.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      if (bgexi_get_active_flag (bgexid))
++        {
++          result = Qt;
++        }
++      else
++        {
++          result = Qnil;
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-render-mode",
++       Fbgexi_get_render_mode, Sbgexi_get_render_mode,
++       1, 1, 0,
++       doc: /* Return t if BGEX object was pixmap fill mode.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      if (bgexi_get_render_mode (bgexid))
++        {
++          result = Qt;
++        }
++      else
++        {
++          result = Qnil;
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-set-dynamic-color-flag",
++       Fbgexi_set_dynamic_color_flag, Sbgexi_set_dynamic_color_flag,
++       2, 2, 0,
++       doc: /* Set dynamic color flag.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object flag)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      result = bgexi_get_dynamic_color_flag (bgexid) ? Qt : Qnil;
++      bgexi_set_dynamic_color_flag (bgexid, !NILP (flag));
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-dynamic-color-flag",
++       Fbgexi_get_dynamic_color_flag, Sbgexi_get_dynamic_color_flag,
++       1, 1, 0,
++       doc: /* Return t if dynamic color was enabled.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      result = bgexi_get_dynamic_color_flag (bgexid) ? Qt : Qnil;
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-set-factor",
++       Fbgexi_set_factor, Sbgexi_set_factor,
++       2, 2, 0,
++       doc: /* Set factor.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object factor)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++  CHECK_NUMBER (factor);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      XSETINT (result, bgexi_get_dynamic_color_factor (bgexid));
++      bgexi_set_dynamic_color_factor (bgexid, XINT (factor));
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-factor",
++       Fbgexi_get_factor, Sbgexi_get_factor,
++       1, 1, 0,
++       doc: /* Get factor.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      XSETINT (result, bgexi_get_dynamic_color_factor (bgexid));
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-set-color",
++       Fbgexi_set_color, Sbgexi_set_color,
++       2, 2, 0,
++       doc: /* Set color.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object color)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      if (STRINGP (color))
++        {
++          struct frame *f = SELECTED_FRAME ();
++          if (f && FRAME_X_P (f) && FRAME_LIVE_P (f))
++            {
++              XColor xcolor;
++              if (x_defined_color (f, SDATA (color), &xcolor, 0))
++                {
++                  bgexi_set_color (bgexid, xcolor.red, xcolor.green, xcolor.blue);
++                }
++              else
++                {
++                  error ("Illegal color name \"%s\"", SDATA (color));
++                }
++            }
++          else
++            {
++              error ("Cant get frame");
++            }
++        }
++      else
++        {
++          if (XINT (Flength (color)) != 3)
++            {
++              error ("Illegal color");
++            }
++          else
++            {
++              int i;
++              int tmp[3];
++
++              result = Fcons (XINT (bgexi_work.object[bgexid].r) , result);
++              result = Fcons (XINT (bgexi_work.object[bgexid].g) , result);
++              result = Fcons (XINT (bgexi_work.object[bgexid].b) , result);
++
++              for (i = 0;i != 3;i++)
++                {
++                  tmp[i] = XINT (Fnth (make_number (i), color));
++                  if ((tmp[i] < 0) ||
++                      (tmp[i] > 65535))
++                    {
++                      break;
++                    }
++                }
++              if (i != 3)
++                {
++                  error ("Illegal color");
++                }
++
++              bgexi_set_color (bgexid, tmp[0], tmp[1], tmp[2]);
++            }
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-color",
++       Fbgexi_get_color, Sbgexi_get_color,
++       1, 1, 0,
++       doc: /* Get color.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      result = Fcons (XINT (bgexi_work.object[bgexid].b) , result);
++      result = Fcons (XINT (bgexi_work.object[bgexid].g) , result);
++      result = Fcons (XINT (bgexi_work.object[bgexid].r) , result);
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-set-image-filename",
++       Fbgexi_set_image_filename, Sbgexi_set_image_filename,
++       2, 2, 0,
++       doc: /* Set image filename and restart BGEX object.
++             */)
++     (Lisp_Object lisp_bgexid, Lisp_Object filename)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      int error = 0;
++
++      result = build_string (bgexi_work.object[bgexid].filename);
++
++      if (NILP (filename))
++        {
++          bgexi_clear_image_filename_parameter (bgexid);
++        }
++      else
++        {
++          CHECK_STRING (filename);
++          if (!(strlen (SDATA (filename)) < sizeof (bgexi_work.object[0].filename) - 1))
++            {
++              error = !0;
++            }
++        }
++
++      if (!error)
++        {
++          if (!NILP (filename))
++            strncpy (bgexi_work.object_parameter[bgexid].filename,
++                     SDATA (filename),
++                     sizeof (bgexi_work.object[0].filename) - 1);
++          bgexi_set_trigger_restart (bgexid);
++        }
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-get-image-filename",
++       Fbgexi_get_image_filename, Sbgexi_get_image_filename,
++       1, 1, 0,
++       doc: /* Get BGEX image filename.
++             */)
++     (Lisp_Object lisp_bgexid)
++{
++  Lisp_Object result = Qnil;
++  int bgexid;
++
++  CHECK_NUMBER (lisp_bgexid);
++
++  bgexid = XINT (lisp_bgexid);
++  if (bgexi_check_bgexid (bgexid))
++    {
++      BGEXI_ERROR_BGEXID (bgexid);
++    }
++  else
++    {
++      result = build_string (bgexi_work.object[bgexid].filename);
++    }
++
++  return result;
++}
++
++DEFUN ("bgexi-redraw-window",
++       Fbgexi_redraw_window, Sbgexi_redraw_window,
++       1, 1, 0,
++       doc: /* BGEX redraw.
++             */)
++     (Lisp_Object window)
++{
++  bgexi_redraw_window_internal (XWINDOW (window));
++  return Qnil;
++}
+ 
+ /* Return the Emacs frame-object corresponding to an X window.
+    It could be the frame's main window or an icon window.  */
+@@ -1185,7 +4555,7 @@
+ 	  y = FRAME_TOP_MARGIN_HEIGHT (f);
+ 
+ 	  block_input ();
+-	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), 0,
+ 			0, y, width, height, False);
+ 	  unblock_input ();
+ 	}
+@@ -1196,7 +4566,7 @@
+ 	  height = nlines * FRAME_LINE_HEIGHT (f) - y;
+ 
+ 	  block_input ();
+-	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), 0,
+ 			0, y, width, height, False);
+ 	  unblock_input ();
+ 	}
+@@ -1295,7 +4665,7 @@
+       if (height > 0 && width > 0)
+ 	{
+           block_input ();
+-          x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++          x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), 0,
+                         0, y, width, height, False);
+           unblock_input ();
+         }
+@@ -5225,6 +8595,29 @@
+       Fmodify_frame_parameters (frame, list1 (Fcons (Qdisplay_type, disptype)));
+   }
+ 
++
++  if (bgexi_p (-1) && bgexi_fast_p ())
++    {
++      f->bgexi_background_pixmap_initialized_p = 0;
++      if (bgexi_work.object[0].create_p &&
++          !bgexi_work.object[0].failed_p &&
++          !f->bgexi_background_pixmap_p)
++        {
++          if ((bgexi_work.display_name[0] != '\0') &&
++              (strcmp (DisplayString (FRAME_X_DISPLAY (f)), bgexi_work.display_name) != 0))
++            {
++              f->bgexi_background_pixmap_initialized_p = 1;
++            }
++          else
++            {
++              BGEXI_DBP ("by create frame XSetWindowBackgroundPixmap ()\n");
++              XSetWindowBackgroundPixmap (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++                                          bgexi_work.object[0].pixmap);
++              f->bgexi_background_pixmap_p = 1;
++            }
++        }
++    }
++
+   /* Set up faces after all frame parameters are known.  This call
+      also merges in face attributes specified for new frames.
+ 
+@@ -6135,7 +9528,6 @@
+ #endif
+ }
+ 
+-
+ 
+ /***********************************************************************
+ 			    Initialization
+@@ -6382,6 +9774,39 @@
+ #if defined (USE_GTK) && defined (HAVE_FREETYPE)
+   defsubr (&Sx_select_font);
+ #endif
++
++  DEFVAR_BOOL ("bgex-exist-p", bgex_exist_p,
++    doc: /* defined means bgex exist. */);
++  memset (&bgexi_work, 0, sizeof (bgexi_work));
++  defsubr (&Sbgexid_create);
++  defsubr (&Sbgexid_destroy);
++  defsubr (&Sbgexid_get_bgexid_list);
++  defsubr (&Sbgexid_add);
++  defsubr (&Sbgexid_delete);
++  defsubr (&Sbgexid_get_identifier);
++
++  defsubr (&Sbgexi_create);
++  defsubr (&Sbgexi_destroy);
++  defsubr (&Sbgexi_restart);
++  defsubr (&Sbgexi_enable);
++  defsubr (&Sbgexi_disable);
++  defsubr (&Sbgexi_set_draw_strict);
++  defsubr (&Sbgexi_set_draw_fast);
++  defsubr (&Sbgexi_get_bgexid_list);
++  defsubr (&Sbgexi_get_identifier);
++  defsubr (&Sbgexi_set_active_flag);
++  defsubr (&Sbgexi_get_active_flag);
++  defsubr (&Sbgexi_get_render_mode);
++  defsubr (&Sbgexi_set_dynamic_color_flag);
++  defsubr (&Sbgexi_get_dynamic_color_flag);
++  defsubr (&Sbgexi_set_factor);
++  defsubr (&Sbgexi_get_factor);
++  defsubr (&Sbgexi_set_color);
++  defsubr (&Sbgexi_get_color);
++  defsubr (&Sbgexi_set_image_filename);
++  defsubr (&Sbgexi_get_image_filename);
++  defsubr (&Sbgexi_redraw_window);
++  Fbgexi_set_draw_strict ();
+ }
+ 
+ #endif /* HAVE_X_WINDOWS */
+
+=== modified file 'src/xfont.c'
+--- src/xfont.c	2013-08-11 01:30:20 +0000
++++ src/xfont.c	2013-08-28 19:34:10 +0000
+@@ -46,6 +46,16 @@
+ 
+ /* Prototypes of support functions.  */
+ 
++extern int bgexi_p (int bgexid);
++extern int bgexi_fast_p ();
++extern int bgexi_only_fast_p ();
++extern int bgexi_get_dynamic_color_flag (int bgexid);
++extern int bgexi_get_enable_bgexid (struct window *window);
++extern int bgexi_special_trigger_p ();
++extern int bgexi_clear_special_trigger_p ();
++extern int bgexi_fill_rectangle (GC gc, struct window *window,
++                                 int x, int y, int w, int h, int *rgba);
++
+ static XCharStruct *xfont_get_pcm (XFontStruct *, XChar2b *);
+ 
+ /* Get metrics of character CHAR2B in XFONT.  Value is null if CHAR2B
+@@ -1013,6 +1023,149 @@
+ }
+ 
+ static int
++xfont_draw_bgex_string (char *str, XFontStruct *xfont, int len, GC gc, struct glyph_string *s, int from, int x, int y, bool with_background)
++{
++  XGCValues xgcv;
++  int height = xfont->ascent + xfont->descent;
++  int draw_string_p = 0;
++  int draw_image_string_p = 0;
++  XGetGCValues (s->display, s->gc, GCBackground, &xgcv);
++
++  if (bgexi_only_fast_p () ||
++      (bgexi_fast_p () && (bgexi_get_enable_bgexid (s->w) == 0)))
++    {
++      if (bgexi_get_dynamic_color_flag (0))
++        {
++          if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++            {
++              XClearArea (s->display, s->window,
++                          x, s->y, s->width, height, 0);
++              draw_string_p = !0;
++            }
++          else
++            {
++              int rgba[4];
++              XColor xcolor;
++              xcolor.pixel = xgcv.background;
++              XQueryColor (s->display, FRAME_X_COLORMAP (s->f), &xcolor);
++              rgba[0] = xcolor.red;
++              rgba[1] = xcolor.green;
++              rgba[2] = xcolor.blue;
++              rgba[3] = 0;
++              if ((xgcv.background == 0) ||
++                  bgexi_fill_rectangle (s->gc, s->w,
++                                        x, s->y, s->width, height, rgba))
++                {
++                  draw_image_string_p = !0;
++                }
++              else
++                {
++                  draw_string_p = !0;
++                }
++            }
++        }
++      else
++        {
++          if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++            {
++              XClearArea (s->display, s->window,
++                          x, s->y, s->width, height, 0);
++              draw_string_p = !0;
++            }
++          else
++            {
++              draw_image_string_p = !0;
++            }
++        }
++    }
++  else
++    {
++      if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++        {
++          if (bgexi_fill_rectangle (s->gc, s->w,
++                                    x, s->y, s->width, height, 0))
++            {
++              draw_image_string_p = !0;
++            }
++          else
++            {
++              draw_string_p = !0;
++            }
++        }
++      else
++        {
++          int rgba[4];
++          XColor xcolor;
++          xcolor.pixel = xgcv.background;
++          XQueryColor (s->display, FRAME_X_COLORMAP (s->f), &xcolor);
++          rgba[0] = xcolor.red;
++          rgba[1] = xcolor.green;
++          rgba[2] = xcolor.blue;
++          rgba[3] = 0;
++          if (bgexi_fill_rectangle (s->gc, s->w,
++                                    x, s->y, s->width, height, rgba))
++            {
++              draw_image_string_p = !0;
++            }
++          else
++            {
++              draw_string_p = !0;
++            }
++        }
++    }
++  if (str)
++    {
++      int i;
++
++      if (draw_string_p)
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                           gc, x + i, y, str + i, 1);
++          else
++            XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                         gc, x, y, str, len);
++        }
++      else if (draw_image_string_p)
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                gc, x + i, y, str + i, 1);
++          else
++            XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                              gc, x, y, str, len);
++        }
++    }
++  else
++    {
++      int i;
++
++      if (draw_string_p)
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                             gc, x + i, y, s->char2b + from + i, 1);
++          else
++            XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                           gc, x, y, s->char2b + from, len);
++        }
++      else if (draw_image_string_p)
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                  gc, x + i, y, s->char2b + from + i, 1);
++          else
++            XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                gc, x, y, s->char2b + from, len);
++        }
++    }
++}
++
++static int
+ xfont_draw (struct glyph_string *s, int from, int to, int x, int y,
+             bool with_background)
+ {
+@@ -1035,51 +1188,65 @@
+       for (i = 0; i < len ; i++)
+ 	str[i] = XCHAR2B_BYTE2 (s->char2b + from + i);
+       block_input ();
+-      if (with_background)
+-	{
+-	  if (s->padding_p)
+-	    for (i = 0; i < len; i++)
+-	      XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-				gc, x + i, y, str + i, 1);
+-	  else
+-	    XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			      gc, x, y, str, len);
+-	}
++      if (bgexi_p (-1))
++        {
++          xfont_draw_bgex_string(str, xfont, len, gc, s, from, x, y, with_background);
++        }
+       else
+-	{
+-	  if (s->padding_p)
+-	    for (i = 0; i < len; i++)
+-	      XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			   gc, x + i, y, str + i, 1);
+-	  else
+-	    XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			 gc, x, y, str, len);
+-	}
++        {
++          if (with_background)
++            {
++              if (s->padding_p)
++                for (i = 0; i < len; i++)
++                  XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                    gc, x + i, y, str + i, 1);
++              else
++                XDrawImageString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                  gc, x, y, str, len);
++            }
++          else
++            {
++              if (s->padding_p)
++                for (i = 0; i < len; i++)
++                  XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                               gc, x + i, y, str + i, 1);
++              else
++                XDrawString (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                             gc, x, y, str, len);
++            }
++        }
+       unblock_input ();
+       SAFE_FREE ();
+       return s->nchars;
+     }
+ 
+   block_input ();
+-  if (with_background)
++  if (bgexi_p (-1))
+     {
+-      if (s->padding_p)
+-	for (i = 0; i < len; i++)
+-	  XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			      gc, x + i, y, s->char2b + from + i, 1);
+-      else
+-	XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			    gc, x, y, s->char2b + from, len);
++      xfont_draw_bgex_string(0, xfont, len, gc, s, from, x, y, with_background);
+     }
+   else
+     {
+-      if (s->padding_p)
+-	for (i = 0; i < len; i++)
+-	  XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-			 gc, x + i, y, s->char2b + from + i, 1);
++      if (with_background)
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                  gc, x + i, y, s->char2b + from + i, 1);
++          else
++            XDrawImageString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                                gc, x, y, s->char2b + from, len);
++        }
+       else
+-	XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
+-		       gc, x, y, s->char2b + from, len);
++        {
++          if (s->padding_p)
++            for (i = 0; i < len; i++)
++              XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                             gc, x + i, y, s->char2b + from + i, 1);
++          else
++            XDrawString16 (FRAME_X_DISPLAY (s->f), FRAME_X_WINDOW (s->f),
++                           gc, x, y, s->char2b + from, len);
++        }
+     }
+   unblock_input ();
+ 
+
+=== modified file 'src/xftfont.c'
+--- src/xftfont.c	2013-08-03 03:29:03 +0000
++++ src/xftfont.c	2013-08-28 19:34:10 +0000
+@@ -160,6 +160,17 @@
+   return entity;
+ }
+ 
++extern int bgexi_p (int bgexid);
++extern int bgexi_fast_p ();
++extern int bgexi_only_fast_p ();
++extern int bgexi_get_dynamic_color_flag (int bgexid);
++extern int bgexi_get_enable_bgexid (struct window *window);
++extern int bgexi_special_trigger_p ();
++extern int bgexi_clear_special_trigger_p ();
++extern int bgexi_fill_rectangle (GC gc, struct window *window,
++                                 int x, int y, int w, int h, int *rgba);
++extern int bgexi_overstrike_p ();
++
+ static FcChar8 ascii_printable[95];
+ 
+ static void
+@@ -632,16 +643,119 @@
+   if (s->font == face->font)
+     xftface_info = (struct xftface_info *) face->extra;
+   xftfont_get_colors (f, face, s->gc, xftface_info,
+-		      &fg, with_background ? &bg : NULL);
++		      &fg, &bg);
+   block_input ();
+   if (s->num_clips > 0)
+     XftDrawSetClipRectangles (xft_draw, 0, 0, s->clip, s->num_clips);
+   else
+     XftDrawSetClip (xft_draw, NULL);
+ 
+-  if (with_background)
+-    XftDrawRect (xft_draw, &bg,
+-		 x, y - s->font->ascent, s->width, s->font->height);
++  if (bgexi_p (-1) &&
++      !bgexi_overstrike_p())
++    {
++      struct font *font = (struct font *) face->font;
++      XGCValues xgcv;
++      int draw_rect_p = 0;
++      XGetGCValues (s->display, s->gc, GCBackground, &xgcv);
++      if (bgexi_only_fast_p () ||
++          (bgexi_fast_p () && (bgexi_get_enable_bgexid (s->w) == 0)))
++        {
++          if (bgexi_get_dynamic_color_flag (0))
++            {
++              if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++                {
++                  XClearArea (s->display, s->window,
++                              x, s->y, s->width, s->height, 0);
++                }
++              else
++                {
++                  int rgba[4];
++                  XColor xcolor;
++                  xcolor.pixel = xgcv.background;
++                  XQueryColor (s->display, FRAME_X_COLORMAP (s->f), &xcolor);
++                  rgba[0] = xcolor.red;
++                  rgba[1] = xcolor.green;
++                  rgba[2] = xcolor.blue;
++                  rgba[3] = 0;
++                  if ((xgcv.background == 0) ||
++                      bgexi_fill_rectangle (s->gc, s->w,
++                                            x, s->y, s->width, s->height, rgba))
++                    {
++                      draw_rect_p = !0;
++                    }
++                  else
++                    {
++                    }
++                }
++            }
++          else
++            {
++              if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++                {
++                  if (bgexi_fill_rectangle (s->gc, s->w,
++                                            x, s->y, s->width, s->height, 0))
++                    {
++                      XClearArea (s->display, s->window,
++                                  x, s->y, s->width, s->height, 0);
++                    }
++                  else
++                    {
++                      draw_rect_p = !0;
++                    }
++                }
++            }
++        }
++      else
++        {
++          if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++            {
++              if (bgexi_fill_rectangle (s->gc, s->w,
++                                        x, s->y, s->width, s->height, 0))
++                {
++                  draw_rect_p = !0;
++                }
++              else
++                {
++                }
++            }
++          else
++            {
++              int rgba[4];
++              XColor xcolor;
++              xcolor.pixel = xgcv.background;
++              XQueryColor (s->display, FRAME_X_COLORMAP (s->f), &xcolor);
++              rgba[0] = xcolor.red;
++              rgba[1] = xcolor.green;
++              rgba[2] = xcolor.blue;
++              rgba[3] = 0;
++              if (s->face->box_line_width == 0)
++                {
++                  if ((xgcv.background == 0) ||
++                      bgexi_fill_rectangle (s->gc, s->w,
++                                            x, s->y, s->width, s->height, rgba))
++                    {
++                      draw_rect_p = !0;
++                    }
++                  else
++                    {
++                    }
++                }
++            }
++        }
++      if (draw_rect_p)
++        {
++          XftDrawRect (xft_draw, &bg,
++                       x, y - face->font->ascent, s->width, s->font->height);
++        }
++    }
++  else
++    {
++      if (with_background)
++        {
++          XftDrawRect (xft_draw, &bg,
++                       x, y - face->font->ascent, s->width, s->font->height);
++        }
++    }
+   code = alloca (sizeof (FT_UInt) * len);
+   for (i = 0; i < len; i++)
+     code[i] = ((XCHAR2B_BYTE1 (s->char2b + from + i) << 8)
+
+=== modified file 'src/xterm.c'
+--- src/xterm.c	2013-08-28 11:00:03 +0000
++++ src/xterm.c	2013-08-28 19:34:10 +0000
+@@ -341,6 +341,17 @@
+ static void x_initialize (void);
+ 
+ 
++extern int expose_window (struct window *w, XRectangle *fr);
++extern int bgexi_p (int bgexid);
++extern int bgexi_fast_p ();
++extern int bgexi_only_fast_p ();
++extern int bgexi_get_dynamic_color_flag (int bgexid);
++extern int bgexi_get_enable_bgexid (struct window *window);
++extern int bgexi_special_trigger_p ();
++extern int bgexi_clear_special_trigger_p ();
++extern int bgexi_fill_rectangle (GC gc, struct window *window,
++                                 int x, int y, int w, int h, int *rgba);
++extern void bgexi_set_overstrike_flag (int overstrike_p);
+ /* Flush display of frame F, or of all frames if F is null.  */
+ 
+ static void
+@@ -697,9 +708,9 @@
+       int y = WINDOW_TO_FRAME_PIXEL_Y (w, max (0, desired_row->y));
+ 
+       block_input ();
+-      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 		    0, y, width, height, False);
+-      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 		    FRAME_PIXEL_WIDTH (f) - width,
+ 		    y, width, height, False);
+       unblock_input ();
+@@ -1134,7 +1145,65 @@
+   XGCValues xgcv;
+   XGetGCValues (s->display, s->gc, GCForeground | GCBackground, &xgcv);
+   XSetForeground (s->display, s->gc, xgcv.background);
+-  XFillRectangle (s->display, s->window, s->gc, x, y, w, h);
++
++  if (bgexi_p (-1))
++    {
++      int enable_bgexid = bgexi_get_enable_bgexid (s->w);
++      if (bgexi_fast_p () &&
++          (enable_bgexid == 0) &&
++          !bgexi_get_dynamic_color_flag (0))
++        {
++          if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++            {
++              XClearArea (s->display, s->window, x, y, w, h, 0);
++            }
++          else
++            {
++              XFillRectangle (s->display, s->window, s->gc, x, y, w, h);
++            }
++        }
++      else
++        {
++          int flag = 1;
++
++          if (FRAME_BACKGROUND_PIXEL (s->f) == xgcv.background)
++            {
++              if (bgexi_fast_p () &&
++                  (enable_bgexid == 0) &&
++                  bgexi_get_dynamic_color_flag (0))
++                {
++                  XClearArea (s->display, s->window, x, y, w, h, 0);
++                  flag = 0;
++                }
++              else
++                {
++                  flag = bgexi_fill_rectangle (s->gc, s->w, x, y, w, h, 0);
++                }
++            }
++          else
++            {
++              int rgba[4];
++              XColor xcolor;
++              xcolor.pixel = xgcv.background;
++              XQueryColor (s->display, FRAME_X_COLORMAP (s->f), &xcolor);
++              rgba[0] = xcolor.red;
++              rgba[1] = xcolor.green;
++              rgba[2] = xcolor.blue;
++              rgba[3] = 0;
++              flag = bgexi_fill_rectangle (s->gc, s->w, x, y, w, h, rgba);
++            }
++
++          if (flag)
++            {
++              XFillRectangle (s->display, s->window, s->gc, x, y, w, h);
++            }
++        }
++    }
++  else
++    {
++      XFillRectangle (s->display, s->window, s->gc, x, y, w, h);
++    }
++
+   XSetForeground (s->display, s->gc, xgcv.foreground);
+ }
+ 
+@@ -1222,8 +1291,10 @@
+ 	font->driver->draw (s, 0, s->nchars, x, y, 0);
+       else
+ 	font->driver->draw (s, 0, s->nchars, x, y, 1);
++      bgexi_set_overstrike_flag (1);
+       if (s->face->overstrike)
+ 	font->driver->draw (s, 0, s->nchars, x + 1, y, 0);
++      bgexi_set_overstrike_flag (0);
+     }
+ }
+ 
+@@ -2968,10 +3039,41 @@
+    If they are <= 0, this is probably an error.  */
+ 
+ void
+-x_clear_area (Display *dpy, Window window, int x, int y, int width, int height, int exposures)
++x_clear_area (Display *dpy, Window window, struct window *emacs_window, int x, int y, int width, int height, int exposures)
+ {
+   eassert (width > 0 && height > 0);
+-  XClearArea (dpy, window, x, y, width, height, exposures);
++  if (bgexi_p (-1))
++    {
++        {
++          GC gc;
++
++          gc = XCreateGC (dpy,window,0,0);
++
++          if (bgexi_fill_rectangle (gc, emacs_window,
++                                    x, y, width, height, 0))
++            {
++              XClearArea (dpy, window, x, y, width, height, exposures);
++            }
++
++          XFreeGC (dpy,gc);
++        }
++    }
++  else
++    {
++      if (emacs_window && bgexi_special_trigger_p ())
++        {
++          struct frame *f = XFRAME (WINDOW_FRAME (emacs_window));
++          GC gc;
++
++          gc = XCreateGC (dpy,window,0,0);
++          bgexi_fill_rectangle (gc, emacs_window,
++                                0, 0, 1, 1, 0);
++          XFreeGC (dpy,gc);
++
++          bgexi_clear_special_trigger_p ();
++        }
++      XClearArea (dpy, window, x, y, width, height, exposures);
++    }
+ }
+ 
+ 
+@@ -3306,12 +3408,25 @@
+   /* Cursor off.  Will be switched on again in x_update_window_end.  */
+   x_clear_cursor (w);
+ 
+-  XCopyArea (FRAME_X_DISPLAY (f),
+-	     FRAME_X_WINDOW (f), FRAME_X_WINDOW (f),
+-	     f->output_data.x->normal_gc,
+-	     x, from_y,
+-	     width, height,
+-	     x, to_y);
++  if (!bgexi_p (-1))
++    {
++      XCopyArea (FRAME_X_DISPLAY (f),
++                 FRAME_X_WINDOW (f), FRAME_X_WINDOW (f),
++                 f->output_data.x->normal_gc,
++                 x, from_y,
++                 width, height,
++                 x, to_y);
++    }
++  else
++    {
++      XRectangle r;
++      r.x = 0;
++      r.y = (from_y < to_y) ? from_y : to_y;
++      r.width = width;
++      r.height = height + abs(from_y - to_y);
++      expose_window (w, &r);
++/*       expose_frame (f, r.x, r.y, r.width, r.height); */
++    }
+ 
+   unblock_input ();
+ }
+@@ -4926,7 +5041,7 @@
+        for the case that a window has been split horizontally.  In
+        this case, no clear_frame is generated to reduce flickering.  */
+     if (width > 0 && height > 0)
+-      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 		    left, top, width,
+ 		    window_box_height (w), False);
+ 
+@@ -5063,7 +5178,7 @@
+     /* Draw the empty space above the handle.  Note that we can't clear
+        zero-height areas; that means "clear to end of window."  */
+     if (start > 0)
+-      x_clear_area (FRAME_X_DISPLAY (f), w,
++      x_clear_area (FRAME_X_DISPLAY (f), w, 0,
+ 		    /* x, y, width, height, and exposures.  */
+ 		    VERTICAL_SCROLL_BAR_LEFT_BORDER,
+ 		    VERTICAL_SCROLL_BAR_TOP_BORDER,
+@@ -5090,7 +5205,7 @@
+     /* Draw the empty space below the handle.  Note that we can't
+        clear zero-height areas; that means "clear to end of window." */
+     if (end < inside_height)
+-      x_clear_area (FRAME_X_DISPLAY (f), w,
++      x_clear_area (FRAME_X_DISPLAY (f), w, 0,
+ 		    /* x, y, width, height, and exposures.  */
+ 		    VERTICAL_SCROLL_BAR_LEFT_BORDER,
+ 		    VERTICAL_SCROLL_BAR_TOP_BORDER + end,
+@@ -5188,11 +5303,11 @@
+ 	  block_input ();
+ #ifdef USE_TOOLKIT_SCROLL_BARS
+ 	  if (fringe_extended_p)
+-	    x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	    x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			  sb_left, top, sb_width, height, False);
+ 	  else
+ #endif
+-	    x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	    x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			  left, top, width, height, False);
+ 	  unblock_input ();
+ 	}
+@@ -5227,10 +5342,10 @@
+ 	  if (width > 0 && height > 0)
+ 	    {
+ 	      if (fringe_extended_p)
+-		x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++		x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			      sb_left, top, sb_width, height, False);
+ 	      else
+-		x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++		x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			      left, top, width, height, False);
+ 	    }
+ #ifdef USE_GTK
+@@ -5254,10 +5369,10 @@
+ 	 VERTICAL_SCROLL_BAR_WIDTH_TRIM.  */
+       if (VERTICAL_SCROLL_BAR_WIDTH_TRIM)
+ 	{
+-	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			left, top, VERTICAL_SCROLL_BAR_WIDTH_TRIM,
+ 			height, False);
+-	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			left + width - VERTICAL_SCROLL_BAR_WIDTH_TRIM,
+ 			top, VERTICAL_SCROLL_BAR_WIDTH_TRIM,
+ 			height, False);
+@@ -5273,11 +5388,11 @@
+ 	if (rest > 0 && height > 0)
+ 	  {
+ 	    if (WINDOW_HAS_VERTICAL_SCROLL_BAR_ON_LEFT (w))
+-	      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			    left + area_width -  rest, top,
+ 			    rest, height, False);
+ 	    else
+-	      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++	      x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 			    left, top, rest, height, False);
+ 	  }
+       }
+@@ -6124,6 +6239,7 @@
+           /* This seems to be needed for GTK 2.6.  */
+           x_clear_area (event.xexpose.display,
+                         event.xexpose.window,
++                        0,
+                         event.xexpose.x, event.xexpose.y,
+                         event.xexpose.width, event.xexpose.height,
+                         FALSE);
+@@ -7347,9 +7463,9 @@
+ /* RIF: Clear area on frame F.  */
+ 
+ static void
+-x_clear_frame_area (struct frame *f, int x, int y, int width, int height)
++x_clear_frame_area (struct window *w, struct frame *f, int x, int y, int width, int height)
+ {
+-  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
++  x_clear_area (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), w,
+ 		x, y, width, height, False);
+ #ifdef USE_GTK
+   /* Must queue a redraw, because scroll bars might have been cleared.  */
+
+=== modified file 'src/xterm.h'
+--- src/xterm.h	2013-08-27 04:23:54 +0000
++++ src/xterm.h	2013-08-28 19:34:10 +0000
+@@ -968,7 +968,7 @@
+ #endif
+ extern bool x_alloc_nearest_color (struct frame *, Colormap, XColor *);
+ extern void x_query_color (struct frame *f, XColor *);
+-extern void x_clear_area (Display *, Window, int, int, int, int, int);
++extern void x_clear_area (Display *, Window, struct window*, int, int, int, int, int);
+ #if defined HAVE_MENUS && !defined USE_X_TOOLKIT && !defined USE_GTK
+ extern void x_mouse_leave (struct x_display_info *);
+ #endif
+
