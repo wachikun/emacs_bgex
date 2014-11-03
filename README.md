@@ -11,6 +11,15 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 
 
 
+# 操作例
+
+## YouTube
+
+[![example](http://img.youtube.com/vi/5P89fA-2ZfU/0.jpg)](http://www.youtube.com/watch?v=5P89fA-2ZfU)
+
+
+
+
 # Emacs のバージョン別ダウンロードすべきもの一覧
 
 ## Emacs-24.4
