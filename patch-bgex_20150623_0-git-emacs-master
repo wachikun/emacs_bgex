@@ -206,7 +206,7 @@ index 25eed01..463a474 100644
        r.x -= WINDOW_LEFT_EDGE_X (w);
        r.y -= WINDOW_TOP_EDGE_Y (w);
 diff --git a/src/xfns.c b/src/xfns.c
-index 88d187c..63e1561 100644
+index 88d187c..0b130cd 100644
 --- a/src/xfns.c
 +++ b/src/xfns.c
 @@ -20,6 +20,13 @@ along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.  */
@@ -223,7 +223,7 @@ index 88d187c..63e1561 100644
  #include <unistd.h>
  
  #include "lisp.h"
-@@ -334,168 +341,3921 @@ x_real_pos_and_offsets (struct frame *f,
+@@ -334,168 +341,3928 @@ x_real_pos_and_offsets (struct frame *f,
          }
      }
  
@@ -674,7 +674,7 @@ index 88d187c..63e1561 100644
 +int
 +bgexi_get_enable_bgexid (struct window *window);
 +int
-+bgexi_special_trigger_p ();
++bgexi_special_trigger_p (struct window *window);
 +int
 +bgexi_clear_special_trigger_p ();
 +int
@@ -2426,9 +2426,16 @@ index 88d187c..63e1561 100644
 +  return result;
 +}
 +
-+int bgexi_special_trigger_p (void)
++int bgexi_special_trigger_p (struct window *window)
 +{
-+  return bgexi_work.special_trigger_p;
++  if (bgexid_check_identifier_type_default())
++    {
++      return bgexi_work.special_trigger_p;
++    }
++  if (bgexi_get_bgexid(window) >= 0) {
++      return bgexi_work.special_trigger_p;
++  }
++  return 0;
 +}
 +
 +int bgexi_clear_special_trigger_p (void)
@@ -4258,7 +4265,7 @@ index 88d187c..63e1561 100644
  
  /* Change the `wait-for-wm' frame parameter of frame F.  OLD_VALUE is
     the previous value of that parameter, NEW_VALUE is the new value.
-@@ -1084,7 +4844,7 @@ x_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
+@@ -1084,7 +4851,7 @@ x_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
  	  y = FRAME_TOP_MARGIN_HEIGHT (f);
  
  	  block_input ();
@@ -4267,7 +4274,7 @@ index 88d187c..63e1561 100644
  	  unblock_input ();
  	}
  
-@@ -1094,7 +4854,7 @@ x_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
+@@ -1094,7 +4861,7 @@ x_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
  	  height = nlines * FRAME_LINE_HEIGHT (f) - y;
  
  	  block_input ();
@@ -4276,7 +4283,7 @@ index 88d187c..63e1561 100644
  	  unblock_input ();
  	}
  
-@@ -5286,6 +9046,29 @@ x_create_tip_frame (struct x_display_info *dpyinfo,
+@@ -5286,6 +9053,29 @@ x_create_tip_frame (struct x_display_info *dpyinfo,
        }
    }
  
@@ -4306,7 +4313,7 @@ index 88d187c..63e1561 100644
    /* Set up faces after all frame parameters are known.  This call
       also merges in face attributes specified for new frames.
  
-@@ -6658,4 +10441,40 @@ When using Gtk+ tooltips, the tooltip face is not used.  */);
+@@ -6658,4 +10448,40 @@ When using Gtk+ tooltips, the tooltip face is not used.  */);
    defsubr (&Sx_print_frames_dialog);
  #endif
  #endif
@@ -4618,10 +4625,10 @@ index d5a7d64..8731704 100644
    unblock_input ();
  
 diff --git a/src/xftfont.c b/src/xftfont.c
-index a1846e8..1189e01 100644
+index a1846e8..f45b5e8 100644
 --- a/src/xftfont.c
 +++ b/src/xftfont.c
-@@ -152,6 +152,17 @@ xftfont_match (struct frame *f, Lisp_Object spec)
+@@ -152,6 +152,16 @@ xftfont_match (struct frame *f, Lisp_Object spec)
    return entity;
  }
  
@@ -4630,7 +4637,6 @@ index a1846e8..1189e01 100644
 +extern int bgexi_only_fast_p ();
 +extern int bgexi_get_dynamic_color_flag (int bgexid);
 +extern int bgexi_get_enable_bgexid (struct window *window);
-+extern int bgexi_special_trigger_p ();
 +extern int bgexi_clear_special_trigger_p ();
 +extern int bgexi_fill_rectangle (GC gc, struct window *window,
 +                                 int x, int y, int w, int h, int *rgba);
@@ -4639,7 +4645,7 @@ index a1846e8..1189e01 100644
  static FcChar8 ascii_printable[95];
  
  static void
-@@ -609,33 +620,134 @@ xftfont_draw (struct glyph_string *s, int from, int to, int x, int y,
+@@ -609,33 +619,134 @@ xftfont_draw (struct glyph_string *s, int from, int to, int x, int y,
    if (s->font == face->font)
      xftface_info = (struct xftface_info *) face->extra;
    xftfont_get_colors (f, face, s->gc, xftface_info,
@@ -4795,7 +4801,7 @@ index a1846e8..1189e01 100644
    code = alloca (sizeof (FT_UInt) * len);
    for (i = 0; i < len; i++)
 diff --git a/src/xterm.c b/src/xterm.c
-index 4d79450..1a20555 100644
+index 4d79450..fa0a7a9 100644
 --- a/src/xterm.c
 +++ b/src/xterm.c
 @@ -249,6 +249,17 @@ static void x_initialize (void);
@@ -4808,7 +4814,7 @@ index 4d79450..1a20555 100644
 +extern int bgexi_only_fast_p ();
 +extern int bgexi_get_dynamic_color_flag (int bgexid);
 +extern int bgexi_get_enable_bgexid (struct window *window);
-+extern int bgexi_special_trigger_p ();
++extern int bgexi_special_trigger_p (struct window *window);
 +extern int bgexi_clear_special_trigger_p ();
 +extern int bgexi_fill_rectangle (GC gc, struct window *window,
 +                                 int x, int y, int w, int h, int *rgba);
@@ -4963,7 +4969,7 @@ index 4d79450..1a20555 100644
 +    }
 +  else
 +    {
-+      if (emacs_window && bgexi_special_trigger_p ())
++      if (emacs_window && bgexi_special_trigger_p (emacs_window))
 +        {
 +          struct frame *f = XFRAME (WINDOW_FRAME (emacs_window));
 +          GC gc;

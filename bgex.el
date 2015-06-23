@@ -178,6 +178,35 @@ dynamic-color-p が Non-nil ならば動的色生成モードで起動します。"
 		(error "Internal error."))))))
     (message "Emacs is not running under a X window system.")))
 
+(defun bgex-set-xpm-string (identifier type xpm-string &optional dynamic-color-p)
+  "ウィンドウごとの背景画像を指定します。
+identifier はウィンドウを識別するための文字列で、メジャーモードやバッファ名を指定します。
+type には
+    'bgex-identifier-type-major-mode	(identifier をメジャーモード名として扱う)
+    'bgex-identifier-type-buffer-name	(identifier をバッファ名として扱う)
+が指定できます。
+xpm-string には XPM イメージを指定します。
+dynamic-color-p が Non-nil ならば動的色生成モードで起動します。"
+  (interactive)
+
+  (if (string= window-system "x")
+      (progn
+	(let ((getid (bgex-bgexid-check identifier type)))
+	  (if getid
+	      (progn
+		(let ((color (bgexi-get-color getid)))
+		  (bgexi-restart-for-xpm-string getid t dynamic-color-p color xpm-string))
+		(redraw-display)
+		getid)
+	    (let ((id (bgexid-create identifier type)))
+	      (if id
+		  (if (bgexi-create-for-xpm-string id t dynamic-color-p "white" xpm-string)
+		      (message "bgexi-create failed.")
+		    (redraw-display)
+		    id)
+		(error "Internal error."))))))
+    (message "Emacs is not running under a X window system.")))
+
 (defun bgex-destroy (identifier type)
   "指定した背景を破棄します。"
   (interactive)
@@ -255,6 +284,32 @@ Non-nil ならば動的色生成モードになります。"
 	  (let ((id (bgexid-create nil 'bgex-identifier-type-default)))
 	    (if id
 		(if (bgexi-create id nil dynamic-color-p color nil)
+		    (message "bgexi-create failed.")
+		  (setq bgex-id-default id)
+		  (redraw-display)
+		  0)
+	      (error "Internal error.")))))
+    (message "Emacs is not running under a X window system.")))
+
+(defun bgex-set-xpm-string-default (xpm-string &optional dynamic-color-p)
+  "デフォルトの背景画像を指定します。"
+  (interactive)
+
+  (if (string= window-system "x")
+      (progn
+	(when (and (not (car (nth 0 (bgexid-get-identifier 0))))
+		   (or (> (length (bgexid-get-bgexid-list)) 0)
+		       (> (length (bgexi-get-bgexid-list)) 0)))
+	  (error "Cant set default image."))
+	(if (bgex-bgexid-check-default)
+	    (progn
+	      (let ((color (bgexi-get-color bgex-id-default)))
+		(bgexi-restart-for-xpm-string bgex-id-default t dynamic-color-p color xpm-string))
+	      (redraw-display)
+	      0)
+	  (let ((id (bgexid-create nil 'bgex-identifier-type-default)))
+	    (if id
+		(if (bgexi-create-for-xpm-string id t dynamic-color-p "white" xpm-string)
 		    (message "bgexi-create failed.")
 		  (setq bgex-id-default id)
 		  (redraw-display)
