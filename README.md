@@ -22,7 +22,7 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 
 # Install
 
-## Patch and build
+## Patch and Build
 
 ```
 $ cd /tmp
@@ -37,20 +37,14 @@ $ cd ..
 $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 ```
 
-## .emacs
+
+## Settings
 
 ```
-(when (boundp 'bgex-exist-p)
-  (bgex-set-image-default "YOUR-IMAGE-FILE-A")
-  (bgex-set-image "*scratch*" 'bgex-identifier-type-buffer-name "YOUR-IMAGE-FILE" t))
-```
+;; Emacs-BGEX patch
+(require 'bgex)
 
 
-
-
-# Settings
-
-```
 ;; Image on frame
 (when (boundp 'bgex-exist-p)
   (bgex-set-image-default "~/.emacs.d/images/background.xpm"))
@@ -77,57 +71,57 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20180812_0-git-emacs-master](patch-bgex_20180812_0-git-emacs-master)
+- [patch-bgex_20180812_0-git-emacs-master.tar.xz](patch-bgex_20180812_0-git-emacs-master.tar.xz)
 
 
 ## Emacs-26.1
 
-- patch-bgex_20171115_0-git-emacs-master.tar.xz
+- [patch-bgex_20171115_0-git-emacs-master.tar.xz](patch-bgex_20171115_0-git-emacs-master.tar.xz)
 
 
 ## Emacs-25.1 / 25.2 / 25.3
 
-- patch-bgex_20160201_0-git-emacs-master.tar.xz
+- [patch-bgex_20160201_0-git-emacs-master.tar.xz](patch-bgex_20160201_0-git-emacs-master.tar.xz)
 
 
 ## Emacs-24.5
 
-- patch-bgex_20150515_0-emacs-24.5.tar.xz
+- [patch-bgex_20150515_0-emacs-24.5.tar.xz](patch-bgex_20150515_0-emacs-24.5.tar.xz)
 
 
 ## Emacs-24.4
 
-- patch-bgex_20140112_0-bzr-emacs-trunk.tar.bz2
+- [patch-bgex_20140112_0-bzr-emacs-trunk.tar.bz2](patch-bgex_20140112_0-bzr-emacs-trunk.tar.bz2)
 
 
 ## Emacs-24.3
 
-- patch-bgex_20121216_0-bzr-emacs-trunk.tar.bz2
+- [patch-bgex_20121216_0-bzr-emacs-trunk.tar.bz2](patch-bgex_20121216_0-bzr-emacs-trunk.tar.bz2)
 
 
 ## Emacs-24.2
 
-- patch-bgex_20120916_0-emacs-24.2.tar.bz2
+- [patch-bgex_20120916_0-emacs-24.2.tar.bz2](patch-bgex_20120916_0-emacs-24.2.tar.bz2)
 
 
 ## Emacs-24.1
 
-- patch-bgex_20111215_0-bzr-emacs-trunk.tar.bz2
+- [patch-bgex_20111215_0-bzr-emacs-trunk.tar.bz2](patch-bgex_20111215_0-bzr-emacs-trunk.tar.bz2)
 
 
 ## Emacs-23.3a
 
-- patch-bgex_20110822_0-emacs-23.3a.tar.bz2
+- [patch-bgex_20110822_0-emacs-23.3a.tar.bz2](patch-bgex_20110822_0-emacs-23.3a.tar.bz2)
 
 
 ## Emacs-22.3
 
-- patch-bgex_20060712_0-emacs-cvshead.tar.bz2
+- [patch-bgex_20060712_0-emacs-cvshead.tar.bz2](patch-bgex_20060712_0-emacs-cvshead.tar.bz2)
 
 
 ## Emacs-21.4 / Emacs-21.3
 
-- patch-bgex_20050921_0-emacs-21.4.tar.bz2
+- [patch-bgex_20050921_0-emacs-21.4.tar.bz2](patch-bgex_20050921_0-emacs-21.4.tar.bz2)
 
 
 
