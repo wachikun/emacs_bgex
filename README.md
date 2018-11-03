@@ -77,8 +77,7 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- Git
-- patch-bgex_20140728_0-bzr-emacs-trunk.tar.xz
+- [patch-bgex_20180812_0-git-emacs-master](patch-bgex_20180812_0-git-emacs-master)
 
 
 ## Emacs-26.1
