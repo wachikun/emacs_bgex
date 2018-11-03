@@ -1,4 +1,4 @@
-# Emacs-BGEX patch とは?
+# Emacs-BGEX patch
 
 X 用 (X なら Cygwin でも MacOSX でも動きます!) FSF Emacs の背景拡張非公式パッチです。
 
@@ -11,7 +11,7 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 
 
 
-# 操作例
+# Example
 
 ## YouTube
 
@@ -20,7 +20,81 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 
 
 
-# Emacs のバージョン別ダウンロードすべきもの一覧
+# Install
+
+## Patch and build
+
+```
+$ cd /tmp
+$ wget http://umiushi.org/~wac/bgex/patch-bgex_VERSION.tar.xz
+$ tar xf patch-bgex_VERSION.tar.xz
+$ cp -av /tmp/patch-bgex_VERSION/bgex.el YOUR-ELISP-PATH/
+
+$ cd YOUR-EMACS-SOURCE-PATH
+$ cd src
+$ patch > /tmp/patch-bgex_VERSION/patch-bgex_VERSION
+$ cd ..
+$ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
+```
+
+## .emacs
+
+```
+(when (boundp 'bgex-exist-p)
+  (bgex-set-image-default "YOUR-IMAGE-FILE-A")
+  (bgex-set-image "*scratch*" 'bgex-identifier-type-buffer-name "YOUR-IMAGE-FILE" t))
+```
+
+
+
+
+# Settings
+
+```
+;; Image on frame
+(when (boundp 'bgex-exist-p)
+  (bgex-set-image-default "~/.emacs.d/images/background.xpm"))
+
+;; Image on frame (dynamic color mode (SRC * DST / factor))
+(bgex-set-image-default "~/.emacs.d/images/background.xpm" t)
+
+;; Color for HTML-mode (dynamic color mode)
+(bgex-set-color "HTML" 'bgex-identifier-type-major-mode '(60000 40000 40000) t)
+
+;; Color for buffer-name (*scratch*)
+(bgex-set-color "*scratch*" 'bgex-identifier-type-buffer-name "skyblue")
+
+;; XPM string
+(bgex-set-xpm-string "*scratch*" 'bgex-identifier-type-buffer-name "XPM string" t)
+(bgex-set-xpm-string-default "XPM string" t)
+```
+
+
+
+
+# Patches
+
+
+## HEAD
+
+- Git
+- patch-bgex_20140728_0-bzr-emacs-trunk.tar.xz
+
+
+## Emacs-26.1
+
+- patch-bgex_20171115_0-git-emacs-master.tar.xz
+
+
+## Emacs-25.1 / 25.2 / 25.3
+
+- patch-bgex_20160201_0-git-emacs-master.tar.xz
+
+
+## Emacs-24.5
+
+- patch-bgex_20150515_0-emacs-24.5.tar.xz
+
 
 ## Emacs-24.4
 
@@ -30,12 +104,6 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 ## Emacs-24.3
 
 - patch-bgex_20121216_0-bzr-emacs-trunk.tar.bz2
-
-
-## trunk
-
-- Git
-- patch-bgex_20140728_0-bzr-emacs-trunk.tar.xz
 
 
 ## Emacs-24.2
@@ -65,6 +133,6 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 
 
 
-# 仕様メモ
+# Specification
 
-bgex_memo.txt をごらんください。
+Please see bgex_memo.txt (in Japanese).
