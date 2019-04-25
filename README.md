@@ -31,7 +31,7 @@ $ cp -av /tmp/patch-bgex_VERSION/bgex.el YOUR-ELISP-PATH/
 
 $ cd YOUR-EMACS-SOURCE-PATH
 $ cd src
-$ patch > /tmp/patch-bgex_VERSION/patch-bgex_VERSION
+$ patch < /tmp/patch-bgex_VERSION/patch-bgex_VERSION
 $ cd ..
 $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 ```
