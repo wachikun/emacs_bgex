@@ -70,10 +70,10 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20180812_0-git-emacs-master](patch-bgex_20180812_0-git-emacs-master)
+- [patch-bgex_20190428_0-git-emacs-master](patch-bgex_20190428_0-git-emacs-master)
 
 
-## Emacs-26.1
+## Emacs-26.1 / Emacs-26.2
 
 - [patch-bgex_20171115_0-git-emacs-master](patch-bgex_20171115_0-git-emacs-master)
 
