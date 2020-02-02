@@ -70,10 +70,21 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20190428_0-git-emacs-master](patch-bgex_20190428_0-git-emacs-master)
+- [patch-bgex_20200202_0-git-emacs-master](patch-bgex_20200202_0-git-emacs-master)
 
 
-## Emacs-26.1 / Emacs-26.2
+## for macOS (simple version)
+
+- [ns_bgex.20191023_0.patch](ns_bgex.20191023_0.patch)
+
+```elisp
+(set-background-color "#d0b8a0")
+(set-frame-parameter nil 'bg-image-enable-flag t)
+(set-frame-parameter nil 'bg-fill-alpha 0.6)
+(set-frame-parameter nil 'bg-image-filename "IMAGE_PATH")
+```
+
+## Emacs-26.1 / Emacs-26.2 / Emacs-26.3
 
 - [patch-bgex_20171115_0-git-emacs-master](patch-bgex_20171115_0-git-emacs-master)
 
