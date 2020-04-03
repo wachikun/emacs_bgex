@@ -70,7 +70,7 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20200202_0-git-emacs-master](patch-bgex_20200202_0-git-emacs-master)
+- [patch-bgex_20200403_0-git-emacs-master](patch-bgex_20200403_0-git-emacs-master)
 
 
 ## for macOS (simple version)
