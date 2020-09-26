@@ -1,0 +1,586 @@
+diff --git a/src/dispextern.h b/src/dispextern.h
+index 0d982f7917..a8aedfa07d 100644
+--- a/src/dispextern.h
++++ b/src/dispextern.h
+@@ -2957,7 +2957,7 @@ reset_mouse_highlight (Mouse_HLInfo *hlinfo)
+   void (*define_frame_cursor) (struct frame *f, Emacs_Cursor cursor);
+ 
+   /* Clear the area at (X,Y,WIDTH,HEIGHT) of frame F.  */
+-  void (*clear_frame_area) (struct frame *f, int x, int y,
++  void (*clear_frame_area) (struct window *w, struct frame *f, int x, int y,
+                             int width, int height);
+ 
+  /* Clear area of frame F's internal border.  If the internal border
+@@ -3412,6 +3412,7 @@ #define TTY_CAP_STRIKE_THROUGH	0x20
+ extern void handle_tool_bar_click (struct frame *,
+                                    int, int, bool, int);
+ 
++extern bool expose_window (struct window *w, const Emacs_Rectangle *fr);
+ extern void expose_frame (struct frame *, int, int, int, int);
+ extern bool gui_intersect_rectangles (const Emacs_Rectangle *,
+                                       const Emacs_Rectangle *,
+@@ -3716,6 +3717,15 @@ #define IMAGE_BACKGROUND_TRANSPARENT(img, f, mask)			      \
+ extern void gui_redo_mouse_highlight (Display_Info *);
+ #endif /* HAVE_NS */
+ 
++extern bool isValidBackgroundImage ();
++#ifdef __OBJC__
++extern bool isBackgroundTransparentColor (NSColor *color);
++#endif
++extern bool setupBackgroundImageFile (const char * const filename);
++extern void drawBackground (NSRect rect);
++extern bool g_background_image_flag;
++extern float g_background_fill_alpha;
++
+ #endif /* HAVE_WINDOW_SYSTEM */
+ 
+ INLINE_HEADER_END
+diff --git a/src/dispnew.c b/src/dispnew.c
+index d318e26308..c56d54da06 100644
+--- a/src/dispnew.c
++++ b/src/dispnew.c
+@@ -4369,6 +4369,7 @@ scrolling_window (struct window *w, int tab_line_p)
+   if (w32_use_visible_system_caret)
+     return 0;
+ #endif
++  return 0;
+ 
+   /* Give up if some rows in the desired matrix are not enabled.  */
+   if (! MATRIX_ROW_ENABLED_P (desired_matrix, i))
+diff --git a/src/frame.c b/src/frame.c
+index 3f93450437..0f8d32c9f8 100644
+--- a/src/frame.c
++++ b/src/frame.c
+@@ -3763,6 +3763,9 @@ DEFUN ("set-frame-window-state-change", Fset_frame_window_state_change,
+   {"ns-appearance",		SYMBOL_INDEX (Qns_appearance)},
+   {"ns-transparent-titlebar",	SYMBOL_INDEX (Qns_transparent_titlebar)},
+ #endif
++  {"bg-image-enable-flag",	SYMBOL_INDEX (Qbg_image_enable_flag)},
++  {"bg-image-filename",		SYMBOL_INDEX (Qbg_image_filename)},
++  {"bg-fill-alpha",		SYMBOL_INDEX (Qbg_fill_alpha)},
+ };
+ 
+ #ifdef HAVE_WINDOW_SYSTEM
+@@ -4879,6 +4882,32 @@ gui_set_no_special_glyphs (struct frame *f, Lisp_Object new_value, Lisp_Object o
+     FRAME_NO_SPECIAL_GLYPHS (f) = !NILP (new_value);
+ }
+ 
++void
++x_set_bg_image_enable_flag (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
++{
++  g_background_image_flag = !NILP (arg);
++}
++
++void
++x_set_bg_image_filename (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
++{
++  if (STRINGP(arg))
++    {
++      setupBackgroundImageFile (SDATA (arg));
++    }
++}
++
++void
++x_set_bg_fill_alpha (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
++{
++  if (FLOATP(arg))
++    {
++      g_background_fill_alpha = XFLOAT_DATA (arg);
++    }
++  else
++    {
++    }
++}
+ 
+ #ifndef HAVE_NS
+ 
+@@ -6002,6 +6031,9 @@ syms_of_frame (void)
+   DEFSYM (Qtop_only, "top-only");
+   DEFSYM (Qiconify_top_level, "iconify-top-level");
+   DEFSYM (Qmake_invisible, "make-invisible");
++  DEFSYM (Qbg_image_enable_flag, "bg-image-enable-flag");
++  DEFSYM (Qbg_image_filename, "bg-image-filename");
++  DEFSYM (Qbg_fill_alpha, "bg-fill-alpha");
+ 
+   {
+     int i;
+diff --git a/src/frame.h b/src/frame.h
+index 476bac67fa..eea19b0132 100644
+--- a/src/frame.h
++++ b/src/frame.h
+@@ -1678,6 +1678,10 @@ #define EMACS_CLASS "Emacs"
+ extern void gui_set_alpha (struct frame *, Lisp_Object, Lisp_Object);
+ extern void gui_set_no_special_glyphs (struct frame *, Lisp_Object, Lisp_Object);
+ 
++extern void x_set_bg_image_enable_flag (struct frame *, Lisp_Object, Lisp_Object);
++extern void x_set_bg_image_filename (struct frame *, Lisp_Object, Lisp_Object);
++extern void x_set_bg_fill_alpha (struct frame *, Lisp_Object, Lisp_Object);
++
+ extern void validate_x_resource_name (void);
+ 
+ extern Lisp_Object gui_display_get_resource (Display_Info *,
+diff --git a/src/macfont.m b/src/macfont.m
+index 904814647f..93eac22172 100644
+--- a/src/macfont.m
++++ b/src/macfont.m
+@@ -597,6 +597,7 @@ static void mac_font_get_glyphs_for_variants (CFDataRef, UTF32Char,
+                            glyph_layouts, glyph_len, dir);
+ }
+ 
++static bool get_cgcolor_is_transparent = false;
+ static CGColorRef
+ get_cgcolor(unsigned long idx, struct frame *f)
+ {
+@@ -607,6 +608,8 @@ static void mac_font_get_glyphs_for_variants (CFDataRef, UTF32Char,
+   CGFloat *components = xmalloc (sizeof(CGFloat)*(1+noc));
+   CGColorRef cgColor;
+ 
++  get_cgcolor_is_transparent = isBackgroundTransparentColor(nsColor);
++
+   [nsColor getComponents: components];
+   cgColor = CGColorCreate (colorSpace, components);
+   xfree (components);
+@@ -2914,8 +2917,26 @@ So we use CTFontDescriptorCreateMatchingFontDescriptor (no
+           if (!face)
+             face = FACE_FROM_ID (s->f, MOUSE_FACE_ID);
+         }
+-      CG_SET_FILL_COLOR_WITH_FACE_BACKGROUND (context, face, f);
+-      CGContextFillRects (context, &background_rect, 1);
++      if (isValidBackgroundImage())
++        {
++          // CG_SET_FILL_COLOR_WITH_FACE_BACKGROUND (context, face, f);
++          {
++            CGColorRef refcol_ = get_cgcolor (NS_FACE_BACKGROUND (face), f);
++            CGColorRef refcol2_ = CGColorCreateCopyWithAlpha (refcol_, g_background_fill_alpha);
++            CGContextSetFillColorWithColor (context, refcol2_);
++            CGColorRelease (refcol_);
++            CGColorRelease (refcol2_);
++          }
++          drawBackground(NSRectFromCGRect(background_rect));
++          if (!get_cgcolor_is_transparent) {
++            CGContextFillRects (context, &background_rect, 1);
++          }
++        }
++      else
++        {
++          CG_SET_FILL_COLOR_WITH_FACE_BACKGROUND (context, face, f);
++          CGContextFillRects (context, &background_rect, 1);
++        }
+     }
+ 
+   if (macfont_info->cgfont)
+diff --git a/src/nsfns.m b/src/nsfns.m
+index c7956497c4..3f3114fcef 100644
+--- a/src/nsfns.m
++++ b/src/nsfns.m
+@@ -958,6 +958,9 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   ns_set_appearance,
+   ns_set_transparent_titlebar,
+ #endif
++  x_set_bg_image_enable_flag,
++  x_set_bg_image_filename,
++  x_set_bg_fill_alpha,
+ };
+ 
+ 
+@@ -1373,6 +1376,13 @@ Turn the input menu (an NSMenu) into a lisp list for tracking on lisp side.
+   gui_default_parameter (f, parms, Qfullscreen, Qnil,
+                          "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
+ 
++  gui_default_parameter (f, parms, Qbg_image_enable_flag, Qnil,
++                         "bgImageEnableFlag", "BgImageEnableFlag", RES_TYPE_BOOLEAN);
++  gui_default_parameter (f, parms, Qbg_image_filename, Qnil,
++                         "bgImageFilename", "BgImageFilename", RES_TYPE_STRING);
++  gui_default_parameter (f, parms, Qbg_fill_alpha, Qnil,
++                         "bgFillAlpha", "BgFillAlpha", RES_TYPE_FLOAT);
++
+   /* Allow set_window_size_hook, now.  */
+   f->can_set_window_size = true;
+ 
+diff --git a/src/nsterm.m b/src/nsterm.m
+index fdcd677d14..ec6047a76e 100644
+--- a/src/nsterm.m
++++ b/src/nsterm.m
+@@ -76,6 +76,40 @@ Updated by Christian Limpach (chris@nice.ch)
+ #ifdef NS_IMPL_COCOA
+ static EmacsMenu *mainMenu;
+ #endif
++static NSImage *s_background_image = 0;
++static NSColor *s_background_transparent_color = 0;
++bool g_background_image_flag = false;
++float g_background_fill_alpha = 0.6f;
++bool isValidBackgroundImage ()
++{
++  return s_background_image && g_background_image_flag;
++}
++bool isBackgroundTransparentColor (NSColor *color)
++{
++  return (([color redComponent] == [s_background_transparent_color redComponent]) &&
++          ([color greenComponent] == [s_background_transparent_color greenComponent]) &&
++          ([color blueComponent] == [s_background_transparent_color blueComponent]));
++}
++bool setupBackgroundImageFile (const char * const filename)
++{
++  {
++    /* FIXME! 画像指定時の背景色が透明として扱われることに注意。(なので、あとから背景色を変えるとおかしくなる) */
++    struct frame *emacsframe = SELECTED_FRAME ();
++    s_background_transparent_color = ns_lookup_indexed_color (NS_FACE_BACKGROUND
++                                                              (FACE_FROM_ID (emacsframe, DEFAULT_FACE_ID)),
++                                                              emacsframe);
++  }
++  s_background_image = [[NSImage alloc] initWithContentsOfFile:[NSString stringWithCString:filename encoding:NSUTF8StringEncoding]];
++  return true;
++}
++void drawBackground (NSRect rect)
++{
++  NSGraphicsContext* theContext = [NSGraphicsContext currentContext];
++  [theContext saveGraphicsState];
++  [[NSColor colorWithPatternImage:s_background_image] set];
++  NSRectFill(rect);
++  [theContext restoreGraphicsState];
++}
+ 
+ /* ==========================================================================
+ 
+@@ -2927,7 +2961,14 @@ so some key presses (TAB) are swallowed by the system.  */
+   ns_focus (f, &r, 1);
+   [ns_lookup_indexed_color (NS_FACE_BACKGROUND
+ 			    (FACE_FROM_ID (f, DEFAULT_FACE_ID)), f) set];
+-  NSRectFill (r);
++  if (isValidBackgroundImage())
++    {
++      drawBackground (r);
++    }
++  else
++    {
++      NSRectFill (r);
++    }
+   ns_unfocus (f);
+ 
+   /* as of 2006/11 or so this is now needed */
+@@ -2939,7 +2980,7 @@ so some key presses (TAB) are swallowed by the system.  */
+ 
+ 
+ static void
+-ns_clear_frame_area (struct frame *f, int x, int y, int width, int height)
++ns_clear_frame_area (struct window *w, struct frame *f, int x, int y, int width, int height)
+ /* --------------------------------------------------------------------------
+     External (RIF):  Clear section of frame
+    -------------------------------------------------------------------------- */
+@@ -2957,7 +2998,14 @@ so some key presses (TAB) are swallowed by the system.  */
+   ns_focus (f, &r, 1);
+   [ns_lookup_indexed_color (NS_FACE_BACKGROUND (face), f) set];
+ 
+-  NSRectFill (r);
++  if (isValidBackgroundImage())
++    {
++      drawBackground (r);
++    }
++  else
++    {
++      NSRectFill (r);
++    }
+ 
+   ns_unfocus (f);
+   return;
+@@ -3017,10 +3065,23 @@ so some key presses (TAB) are swallowed by the system.  */
+     NSRect dstRect = NSMakeRect (x, to_y, width, height);
+     EmacsView *view = FRAME_NS_VIEW (f);
+ 
+-    [view copyRect:srcRect to:dstRect];
++   if (isValidBackgroundImage())
++     {
++       Emacs_Rectangle r;
++       r.x = 0;
++       r.y = (from_y < to_y) ? from_y : to_y;
++       r.width = width;
++       r.height = height + abs(from_y - to_y);
++       w->must_be_updated_p = 1;
++       expose_window (w, &r);
++     }
++   else
++     {
++       [view copyRect:srcRect to:dstRect];
+ #ifdef NS_IMPL_COCOA
+-    [view setNeedsDisplayInRect:srcRect];
++       [view setNeedsDisplayInRect:srcRect];
+ #endif
++     }
+   }
+ 
+   unblock_input ();
+@@ -3110,8 +3171,8 @@ so some key presses (TAB) are swallowed by the system.  */
+         }
+       else
+         {
+-          ns_clear_frame_area (f, 0, y, width, height);
+-          ns_clear_frame_area (f,
++          ns_clear_frame_area (w, f, 0, y, width, height);
++          ns_clear_frame_area (w, f,
+                                FRAME_PIXEL_WIDTH (f) - width,
+                                y, width, height);
+         }
+@@ -3401,7 +3462,14 @@ Note that CURSOR_WIDTH is meaningful only for (h)bar cursors.
+   if (face && NS_FACE_BACKGROUND (face)
+       == ns_index_color (FRAME_CURSOR_COLOR (f), f))
+     {
+-      [ns_lookup_indexed_color (NS_FACE_FOREGROUND (face), f) set];
++      if (isValidBackgroundImage())
++        {
++          [[ns_lookup_indexed_color (NS_FACE_FOREGROUND (face), f) colorWithAlphaComponent: g_background_fill_alpha] set];
++        }
++      else
++        {
++          [ns_lookup_indexed_color (NS_FACE_FOREGROUND (face), f) set];
++        }
+       hollow_color = FRAME_CURSOR_COLOR (f);
+     }
+   else
+@@ -3420,7 +3488,14 @@ Note that CURSOR_WIDTH is meaningful only for (h)bar cursors.
+     case HOLLOW_BOX_CURSOR:
+       NSRectFill (r);
+       [hollow_color set];
+-      NSRectFill (NSInsetRect (r, 1, 1));
++      if (isValidBackgroundImage())
++        {
++          drawBackground (NSInsetRect (r, 1, 1));
++        }
++      else
++        {
++          NSRectFill (NSInsetRect (r, 1, 1));
++        }
+       [FRAME_CURSOR_COLOR (f) set];
+       break;
+     case HBAR_CURSOR:
+@@ -3967,14 +4042,38 @@ Function modeled after x_draw_glyph_string_box ().
+             }
+           else
+             face = FACE_FROM_ID (s->f, s->first_glyph->face_id);
++          bool is_bg_transparent = false;
+           if (!face->stipple)
+-            [(NS_FACE_BACKGROUND (face) != 0
+-              ? ns_lookup_indexed_color (NS_FACE_BACKGROUND (face), s->f)
+-              : FRAME_BACKGROUND_COLOR (s->f)) set];
++            {
++              if (isValidBackgroundImage())
++                {
++                  NSColor *bg_color = (NS_FACE_BACKGROUND (face) != 0
++                                       ? ns_lookup_indexed_color (NS_FACE_BACKGROUND (face), s->f)
++                                       : FRAME_BACKGROUND_COLOR (s->f));
++                  [[bg_color colorWithAlphaComponent: g_background_fill_alpha] set];
++                  if (isBackgroundTransparentColor(bg_color))
++                    {
++                      is_bg_transparent = true;
++                    }
++                }
++              else
++                {
++                  [(NS_FACE_BACKGROUND (face) != 0
++                    ? ns_lookup_indexed_color (NS_FACE_BACKGROUND (face), s->f)
++                    : FRAME_BACKGROUND_COLOR (s->f)) set];
++                }
++            }
+           else
+             {
+               struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (s->f);
+-              [[dpyinfo->bitmaps[face->stipple-1].img stippleMask] set];
++              if (isValidBackgroundImage())
++                {
++                  [[[dpyinfo->bitmaps[face->stipple-1].img stippleMask] colorWithAlphaComponent: g_background_fill_alpha] set];
++                }
++              else
++                {
++                  [[dpyinfo->bitmaps[face->stipple-1].img stippleMask] set];
++                }
+             }
+ 
+           if (s->hl != DRAW_CURSOR)
+@@ -3982,7 +4081,22 @@ Function modeled after x_draw_glyph_string_box ().
+               NSRect r = NSMakeRect (s->x, s->y + box_line_width,
+                                     s->background_width,
+                                     s->height-2*box_line_width);
+-              NSRectFill (r);
++              if (isValidBackgroundImage())
++                {
++                  if (is_bg_transparent)
++                    {
++                      drawBackground (r);
++                    }
++                  else
++                    {
++                      drawBackground (r);
++                      NSRectFillUsingOperation (r, NSCompositeSourceOver);
++                    }
++                }
++              else
++                {
++                  NSRectFill (r);
++                }
+             }
+ 
+ 	  s->background_filled_p = 1;
+@@ -4191,7 +4305,14 @@ Function modeled after x_draw_glyph_string_box ().
+ 
+       glyphRect = NSMakeRect (s->x, s->y, s->background_width, s->height);
+ 
+-      [bgCol set];
++      if (isValidBackgroundImage())
++        {
++          [[bgCol colorWithAlphaComponent: g_background_fill_alpha] set];
++        }
++      else
++        {
++          [bgCol set];
++        }
+ 
+       /* NOTE: under NS this is NOT used to draw cursors, but we must avoid
+          overwriting cursor (usually when cursor on a tab) */
+@@ -4206,7 +4327,22 @@ overwriting cursor (usually when cursor on a tab) */
+           glyphRect.size.width -= width;
+           glyphRect.origin.x += width;
+ 
+-          NSRectFill (glyphRect);
++          if (isValidBackgroundImage())
++            {
++              if (isBackgroundTransparentColor(bgCol))
++                {
++                  drawBackground (glyphRect);
++                }
++              else
++                {
++                  drawBackground (glyphRect);
++                  NSRectFillUsingOperation (glyphRect, NSCompositeSourceOver);
++                }
++            }
++          else
++            {
++              NSRectFill (glyphRect);
++            }
+ 
+           /* Draw overlining, etc. on the cursor. */
+           if (s->w->phys_cursor_type == FILLED_BOX_CURSOR)
+@@ -4216,7 +4352,22 @@ overwriting cursor (usually when cursor on a tab) */
+         }
+       else
+         {
++          if (isValidBackgroundImage())
++            {
++              if (isBackgroundTransparentColor(bgCol))
++                {
++                  drawBackground (glyphRect);
++                }
++              else
++                {
++                  drawBackground (glyphRect);
++                  NSRectFillUsingOperation (glyphRect, NSCompositeSourceOver);
++                }
++            }
++          else
++            {
+           NSRectFill (glyphRect);
++            }
+         }
+ 
+       /* Draw overlining, etc. on the stretch glyph (or the part
+@@ -4980,7 +5131,7 @@ in certain situations (rapid incoming events).
+           wset_vertical_scroll_bar (window, Qnil);
+           [bar release];
+         }
+-      ns_clear_frame_area (f, left, top, width, height);
++      ns_clear_frame_area (window, f, left, top, width, height);
+       unblock_input ();
+       return;
+     }
+@@ -4988,7 +5139,7 @@ in certain situations (rapid incoming events).
+   if (NILP (window->vertical_scroll_bar))
+     {
+       if (width > 0 && height > 0)
+-	ns_clear_frame_area (f, left, top, width, height);
++        ns_clear_frame_area (window, f, left, top, width, height);
+ 
+       bar = [[EmacsScroller alloc] initFrame: r window: win];
+       wset_vertical_scroll_bar (window, make_mint_ptr (bar));
+@@ -5003,7 +5154,7 @@ in certain situations (rapid incoming events).
+       if (FRAME_LIVE_P (f) && !NSEqualRects (oldRect, r))
+         {
+           if (oldRect.origin.x != r.origin.x)
+-              ns_clear_frame_area (f, left, top, width, height);
++            ns_clear_frame_area (window, f, left, top, width, height);
+           [bar setFrame: r];
+         }
+     }
+@@ -5067,7 +5218,7 @@ in certain situations (rapid incoming events).
+   if (NILP (window->horizontal_scroll_bar))
+     {
+       if (width > 0 && height > 0)
+-	ns_clear_frame_area (f, left, top, width, height);
++        ns_clear_frame_area (window, f, left, top, width, height);
+ 
+       bar = [[EmacsScroller alloc] initFrame: r window: win];
+       wset_horizontal_scroll_bar (window, make_mint_ptr (bar));
+@@ -5081,7 +5232,7 @@ in certain situations (rapid incoming events).
+       if (FRAME_LIVE_P (f) && !NSEqualRects (oldRect, r))
+         {
+           if (oldRect.origin.y != r.origin.y)
+-            ns_clear_frame_area (f, left, top, width, height);
++            ns_clear_frame_area (window, f, left, top, width, height);
+           [bar setFrame: r];
+           update_p = YES;
+         }
+@@ -5091,7 +5242,7 @@ in certain situations (rapid incoming events).
+      a square that belongs to neither. We need to clear it otherwise
+      it fills with junk.  */
+   if (!NILP (window->vertical_scroll_bar))
+-    ns_clear_frame_area (f, WINDOW_SCROLL_BAR_AREA_X (window), top,
++    ns_clear_frame_area (window, f, WINDOW_SCROLL_BAR_AREA_X (window), top,
+                          NS_SCROLL_BAR_HEIGHT (f), height);
+ 
+   if (update_p)
+@@ -7671,6 +7822,7 @@ - (instancetype) initFrameFromEmacs: (struct frame *)f
+   col = ns_lookup_indexed_color (NS_FACE_BACKGROUND
+ 				 (FACE_FROM_ID (emacsframe, DEFAULT_FACE_ID)),
+ 				 emacsframe);
++  s_background_transparent_color = col;
+   [win setBackgroundColor: col];
+   if ([col alphaComponent] != (EmacsCGFloat) 1.0)
+     [win setOpaque: NO];
+@@ -8562,7 +8714,7 @@ - (void)drawRect: (NSRect)rect
+   int x = NSMinX (rect), y = NSMinY (rect);
+   int width = NSWidth (rect), height = NSHeight (rect);
+ 
+-  ns_clear_frame_area (emacsframe, x, y, width, height);
++  ns_clear_frame_area (0, emacsframe, x, y, width, height);
+   block_input ();
+   expose_frame (emacsframe, x, y, width, height);
+   unblock_input ();
+diff --git a/src/xdisp.c b/src/xdisp.c
+index 3d40878be6..d5be0d9b1d 100644
+--- a/src/xdisp.c
++++ b/src/xdisp.c
+@@ -31013,7 +31013,7 @@ gui_clear_end_of_line (struct window *w, struct glyph_row *updated_row,
+   if (to_x > from_x && to_y > from_y)
+     {
+       block_input ();
+-      FRAME_RIF (f)->clear_frame_area (f, from_x, from_y,
++      FRAME_RIF (f)->clear_frame_area (w, f, from_x, from_y,
+                                        to_x - from_x, to_y - from_y);
+       unblock_input ();
+     }
+@@ -31537,7 +31537,7 @@ erase_phys_cursor (struct window *w)
+       x = WINDOW_TEXT_TO_FRAME_PIXEL_X (w, x);
+ 
+       if (width > 0)
+-	FRAME_RIF (f)->clear_frame_area (f, x, y, width, cursor_row->visible_height);
++	FRAME_RIF (f)->clear_frame_area (w, f, x, y, width, cursor_row->visible_height);
+     }
+ 
+   /* Erase the cursor by redrawing the character underneath it.  */
+@@ -34124,7 +34124,7 @@ gui_draw_bottom_divider (struct window *w)
+    input blocked.  Value is true if the exposure overwrites
+    mouse-face.  */
+ 
+-static bool
++bool
+ expose_window (struct window *w, const Emacs_Rectangle *fr)
+ {
+   struct frame *f = XFRAME (w->frame);
