@@ -84,6 +84,11 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 (set-frame-parameter nil 'bg-image-filename "IMAGE_PATH")
 ```
 
+## Emacs-27.1 / Emacs-27.2
+
+- [patch-bgex_20200403_0-git-emacs-master](patch-bgex_20200403_0-git-emacs-master)
+
+
 ## Emacs-26.1 / Emacs-26.2 / Emacs-26.3
 
 - [patch-bgex_20171115_0-git-emacs-master](patch-bgex_20171115_0-git-emacs-master)
