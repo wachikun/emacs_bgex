@@ -70,12 +70,12 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20210403_0-git-emacs-master](patch-bgex_20210403_0-git-emacs-master)
+- [patch-bgex_20210428_0-git-emacs-master](patch-bgex_20210428_0-git-emacs-master)
 
 
 ## for macOS (simple version)
 
-- [ns_bgex.20191023_0.patch](ns_bgex.20191023_0.patch)
+- [ns_bgex.20210428_0.patch](ns_bgex.20210428_0.patch)
 
 ```elisp
 (set-background-color "#d0b8a0")
