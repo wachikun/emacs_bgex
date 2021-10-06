@@ -23,8 +23,8 @@ Emacs-BGEX patch を適用すると背景に画像や色を指定できるよう
 # Install
 
 ```
+get patch-bgex_VERSION.tar.xz
 $ cd /tmp
-$ wget http://umiushi.org/~wac/bgex/patch-bgex_VERSION.tar.xz
 $ tar xf patch-bgex_VERSION.tar.xz
 
 $ cp -av /tmp/patch-bgex_VERSION/bgex.el YOUR-ELISP-PATH/
