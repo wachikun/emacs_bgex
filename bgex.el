@@ -1,19 +1,17 @@
 ;;; bgex.el --- Emacs-BGEX patch convenience functions -*- coding: iso-2022-jp -*-
 
-;; Copyright (C) 2003-2013 Tadashi Watanabe <wac@umiushi.org>
+;; Copyright (C) 2003-2021 Tadashi Watanabe <twacc2020@gmail.com>
 ;;
-;; Author: Tadashi Watanabe <wac@umiushi.org>
-;; Maintainer: Tadashi Watanabe <wac@umiushi.org>
+;; Author: Tadashi Watanabe <twacc2020@gmail.com>
+;; Maintainer: Tadashi Watanabe <twacc2020@gmail.com>
 ;; URL: https://github.com/wachikun/emacs_bgex
-;; Homepage: http://umiushi.org/~wac/bgex/
+;; Homepage: https://github.com/wachikun/emacs_bgex
 ;; Version: 0.1.0
 ;; Keywords: tools
 ;;
 ;; SPDX-License-Identifier: GPL-2.0-or-later
 
 ;;; Commentary:
-
-;; http://umiushi.org/~wac/bgex/
 
 ;;; Code:
 
