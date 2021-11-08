@@ -1,0 +1,437 @@
+
+
+
+
+Introduction
+
+        Emacs-BGEX patch is an unofficial patch to extend the
+        background of FSF Emacs for X.
+
+        It provides background color and background image features for
+        buffers, in addition to the background image features for
+        frames like XEmacs. Backgrounds can be associated with buffers
+        or modes, so for example you can specify a background color or
+        background image specifically for *scratch*.
+
+
+
+
+PROBLEMS
+
+        A. Implementation is NOT smart.
+
+        B. The BGEX configuration method differs from the Emacs
+           standard.
+
+        C. The background image does not support frames that span
+           multiple DISPLAYs.
+
+        D. The supported depth is 16 or 32bpp. Does not work with
+           8bpp.
+
+        E. When the redraw event does not occur, redrawing may not be
+           performed correctly by BGEX.
+
+        F. Display results are different in areas where the GC's
+           clip-mask are used.
+
+
+
+
+Configuration example
+
+;; Emacs-BGEX patch
+(when (boundp 'bgex-exist-p)
+  (require 'bgex)
+; Set "~/.emacs.d/images/background.xpm" as the default background
+  (bgex-set-image-default "~/.emacs.d/images/background.xpm")
+
+; Set background color of html-mode (for major-mode)
+  (bgex-set-color "HTML" 'bgex-identifier-type-major-mode '(60000 40000 40000))
+
+; Set background color of *scratch* (for buffer-name)
+  (bgex-set-color "*scratch*" 'bgex-identifier-type-buffer-name "skyblue"))
+
+
+
+
+Overview
+
+        BGEX is implemented in the following three layers
+
+            1. BGEX
+
+                `bgex.el'.
+
+                Implemented by Emacs-Lisp.
+
+            2. BGEXI
+
+                Internal implementation for background drawing and
+                handling the `struct bgexi_object'.
+
+                Implemented by C.
+
+            3. BGEXID
+
+                This is an internal implementation that associates the
+                `struct bgexi_object' with major-mode and buffer-name.
+
+                Implemented by C.
+
+
+        Implementing background rendering for windows(*1)
+
+            It is implemented by forcibly replacing the background
+            filling and string drawing processes in xterm.c.
+
+            This is very CPU-intensive compared to
+            XSetWindowBackgroundPixmap().
+
+            In xterm.c, rectangle filling is done by XFillRectangle(),
+            XClearArea() or XCopyArea(), which is replaced by
+            bgexi_fill_rectangle()@xfns.c when necessary.  However,
+            XCopyArea() cannot handle this, so it uses `expose_window'
+            to redraw it.  This is a very wasteful process.
+
+            In addition, there are parts of the window that are
+            suppressed from being rewritten and optimized. This is
+            because BGEX needs to rewrite parts that do not originally
+            need to be rewritten.
+
+            When BGEX is disabled by `bgex-disable', no wasteful
+            processing will occur.
+
+                *1) The "window" here refers to the Emacs window. It
+                    is not a window of the window system.
+
+
+        Initialization
+
+            There is an initialization function bgexi-create, but it
+            only triggers the initialization. The actual
+            initialization is not done here, but in
+            bgexi_fill_rectangle.  Therefore, calling bgexi-create
+            will not change anything on the screen if the screen is
+            not updated.
+
+
+        The dynamic color generation mode
+
+            COLOR = SRC fill color * DST image / FACTOR
+
+            FACTOR is set by the function
+            `bgexi-set-dynamic-color-factor'.
+
+            This mode is CPU-intensive.
+
+
+        Default background
+
+             The default background is the background that is applied
+             to the entire frame.
+
+
+
+
+Variables
+
+        Variable: bgex-exist-p
+
+                It is defined in Emacs with bgex built in.
+
+
+
+
+Functions
+
+        OBSOLETE! Function: bgex-strict
+
+        OBSOLETE! Function: bgex-fast
+
+        Function: bgex-enable
+
+                Enables BGEX.
+
+        Function: bgex-disable
+
+                Disables BGEX.
+
+        Function: bgex-set-image-default FILENAME &optional dynamic-color-p
+
+                Sets the default background image.
+
+        Function: bgex-set-color-default COLOR &optional dynamic-color-p
+
+                Sets the default background color.
+
+        Function: bgex-destroy-default
+
+                Discard the default background.
+
+        Function: bgex-set-image IDENTIFIER TYPE FILENAME &optional dynamic-color-p
+
+                Sets the background image for each windows.
+
+                IDENTIFIER is a string to identify the window, and
+                sets the major mode or buffer name.
+
+                TYPE can be set to 'bgex-identifier-type-major-mode or
+                'bgex-identifier-type-buffer-name.
+
+                    'bgex-identifier-type-major-mode   (Treats the identifier as a major-mode name.)
+                    'bgex-identifier-type-major-mode-regexp
+                    'bgex-identifier-type-buffer-name  (Treats the identifier as a buffer name.)
+                    'bgex-identifier-type-buffer-name-regexp
+
+                FILENAME is the image file name.
+
+                If DYNAMIC-COLOR-P is non-nil, it sets the dynamic
+                color generation mode.
+
+        Function: bgex-set-color IDENTIFIER TYPE COLOR &optional dynamic-color-p
+
+                Sets the background color for each windows.
+
+                COLOR can be set to a string representing a color
+                name, or a list such as '(r g b)'. r, g, and b are
+                integers and can take values between 0 and 65535.
+
+                If DYNAMIC-COLOR-P is non-nil, it sets the dynamic
+                color generation mode.
+
+        Function: bgex-destroy IDENTIFIER TYPE
+
+                Discards the specified background.
+
+        Function: bgex-destroy-all
+
+                Discards the all background.
+
+
+
+
+        Function: bgexid-create IDENTIFIER TYPE
+
+                Generates and returns a BGEXID. BGEX issues processing
+                for the background via the BGEXID.
+
+                Returns nil if an error occurs.
+
+                IDENTIFIER is set to the name of the buffer, major
+                mode or minor mode.
+
+                Can be set to nil only if TYPE is
+                bgex-identifier-type-default.
+
+                TYPE is used to set the type of IDENTIFIER. The
+                possible values and meanings are as follows
+
+                bgex-identifier-type-default
+
+                        This value is special in BGEX.
+
+                        It can be set only when "BGEXID == 0". In
+                        other words, you need to set it right after
+                        Emacs is started.
+
+                        If this value is set, the background will be
+                        drawn by XSetWindowBackgroundPixmap().
+
+                        IDENTIFIER is not referenced, so it can be set
+                        to nil.
+
+                bgex-identifier-type-major-mode
+
+                        IDENTIFIER is a major mode name.
+
+                bgex-identifier-type-major-mode-regexp
+
+                        IDENTIFIER is a major mode name.
+
+                bgex-identifier-type-buffer-name
+
+                        IDENTIFIER is a buffer name.
+
+                bgex-identifier-type-buffer-name-regexp
+
+                        IDENTIFIER is a buffer name.
+
+        Function: bgexid-destroy BGEXID
+
+                Destroys the BGEX object with the set BGEXID and
+                releases the bgexid.
+
+                Returns non-nil if an error occurs.
+
+        Function: bgexid-get-bgexid-list
+
+                Returns a list of registered bgexids.
+
+                Normally, the value is the same as bgexi-get-bgexid.
+
+        Function: bgexid-add BGEXID IDENTIFIER TYPE
+
+                Adds IDENTIFIER and TYPE to the specified BGEXID.
+
+                Returns non-nil if an error occurs.
+
+        Function: bgexid-delete BGEXID IDENTIFIER TYPE
+
+                Removes the IDENTIFIER and TYPE from the specified
+                BGEXID.
+
+                Returns non-nil if an error occurs.
+
+        Function: bgexid-get-identifier BGEXID
+
+                Returns a list of IDENTIFIER and TYPE for a given
+                BGEXID.
+
+                The return value is a list like the following.
+
+                    '((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+
+
+
+
+        Function: bgexi-create BGEXID RENDERMODE DYNAMIC-COLOR-P COLOR &optional FILENAME
+
+                Generates the BGEX object for BGEXID.
+
+                Returns non-nil if an error occurs.
+
+                Redrawing requires a call to `redraw-display'.
+
+                RENDERMODE specifies the fill mode as follows.
+
+                Non-nil
+                        Fill with the background image.
+                nil
+                        Fill with the background color.
+
+                If DYNAMIC-COLOR-P is non-nil, it sets the dynamic
+                color generation mode.
+
+                FILENAME is the image file name. If nil or the file is
+                invalid, the fill mode is forced to the background
+                color mode.
+
+                COLOR can be set to a string representing a color
+                name, or a list such as '(r g b)'. r, g, and b are
+                integers and can take values between 0 and 65535.  If
+                nil, the original background color will be used.
+
+        Function: bgexi-destroy BGEXID
+
+                Discard the BGEX object for BGEXID.
+
+                Returns non-nil if an error occurs.
+
+                Redrawing requires a call to `redraw-display'.
+
+        Function: bgexi-enable
+
+                Enables BGEX.
+
+                Always returns nil.
+
+        Function: bgexi-disable
+
+                Disables BGEX.
+
+                Always returns nil.
+
+        OBSOLETE! Function: bgexi-set-draw-strict
+
+        OBSOLETE! Function: bgexi-set-draw-fast
+
+        Function: bgexi-get-bgexid-list
+
+                Returns a list of registered bgexids.
+
+                Normally, the value is the same as bgexid-get-bgexid.
+
+        Function: bgexi-get-identifier BGEXID
+
+                Returns a list of IDENTIFIER and TYPE for a given
+                BGEXID.
+
+                The return value is a list like the following.
+
+                    '((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+
+        OBSOLETE! Function: bgexi-set-active-flag BGEXID FLAG
+
+        OBSOLETE! Function: bgexi-get-active-flag BGEXID
+
+        Function: bgexi-set-enabled BGEXID FLAG
+
+                Sets the enable flag of the BGEX object for BGEXID.
+                If non-nil, enable it.
+
+        Function: bgexi-enabled-p BGEXID
+
+                Checks if the BGEX object for BGEXID is enabled.
+
+        Function: bgexi-get-render-mode BGEXID
+
+                Get render-mode. If non-nil, it is the background
+                image, if nil, it is the background color.
+
+        Function: bgexi-set-dynamic-color-flag BGEXID FLAG
+
+                Sets the dynamic color flag of the BGEX object for
+                BGEXID.
+
+                Redrawing requires a call to `redraw-display'.
+
+        Function: bgexi-get-dynamic-color-flag BGEXID
+
+                Get the dynamic color flag of the BGEX object for
+                BGEXID.
+
+        OBSOLETE! Function: bgexi-set-factor BGEXID factor
+
+        OBSOLETE! Function: bgexi-get-factor BGEXID
+
+        Function: bgexi-set-dynamic-color-factor BGEXID factor
+
+                Sets the factor of dynamic color generation mode.
+
+        Function: bgexi-get-dynamic-color-factor BGEXID
+
+                Get the factor of dynamic color generation mode.
+
+        Function: bgexi-set-image-filename BGEXID FILENAME
+
+                Sets the background image specified in FILENAME to the
+                BGEX object for the specified BGEXID.
+
+                Redrawing requires a call to `redraw-display'.
+
+                Redrawing requires a call to `redraw-display'.
+
+        Function: bgexi-get-image-filename BGEXID
+
+                Get the background image file name set in the BGEX
+                object for the specified BGEXID.
+
+        Function: bgexi-set-color BGEXID COLOR
+
+                Sets the BGEX object for the specified BGEXID to the
+                background color specified in COLOR.
+
+                The return value is the previous value.
+
+                Redrawing requires a call to `redraw-display'.
+
+        Function: bgexi-get-color BGEXID
+
+                Get the background color set to the BGEX object for
+                the specified BGEXID.  The return value is a list like
+                (r g b).
+
+        Function: bgexi-redraw-window WINDOW
+
+                Issues a redraw request to the specified WINDOW.

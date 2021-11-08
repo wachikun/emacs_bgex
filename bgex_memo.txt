@@ -2,580 +2,547 @@
 
 
 
-�Ϥ����
+はじめに
 
-	Emacs-BGEX patch �� X �� FSF Emacs ���طʳ�ĥ������ѥå��Ǥ���
+        Emacs-BGEX patch は X 用 FSF Emacs の背景拡張非公式パッチです。
 
-	XEmacs �Τ褦�ʥե졼����Ф����طʲ�����ǽ�˲ä��Хåե����Ф�
-	���طʿ����طʲ�����ǽ���󶡤��ޤ����طʤϥХåե���⡼�ɤ˴�
-	Ϣ�դ��뤳�Ȥ��Ǥ��뤿�ᡢ���Ȥ��� *scratch* ���Ѥ��طʿ����ط�
-	��������ꤹ�뤳�Ȥ��Ǥ��ޤ���
-
-
-
-
-����
-
-	�طʲ�����ʣ�� DISPLAY �ˤ錄��ե졼����б����Ƥ��ޤ���
-
-	�б� depth �� 16 or 32bpp �Ǥ��� 8bpp �Ǥ�ư��ޤ���
-
-	�����襤�٥��(�Τ褦�ʤ��)��ȯ�����ʤ������ߥ󥰤ˤ�����
-	BGEX ñ�ΤǺ����褬�����������ʤ��ʤ���礬����ޤ���
+        XEmacs のようなフレームに対する背景画像機能に加えバッファに対す
+        る背景色と背景画像機能を提供します。背景はバッファやモードに関
+        連付けることができるため、たとえば *scratch* 専用の背景色や背景
+        画像を設定することができます。
 
 
 
 
-������
+問題点
+
+        A. 実装がスマートではありません。
+
+        B. BGEX の設定は Emacs 標準とは異なります。
+
+        C. 背景画像は複数 DISPLAY にわたるフレームに対応していません。
+
+        D. 対応 depth は 16 or 32bpp です。 8bpp では動作しません。
+
+        E. 再描画イベント(のようなもの)が発生しないタイミングにおいて
+           BGEX 単体で再描画が正しくおこなわれない場合があります。
+
+        F. GC の clip-mask を使用している部分では、表示結果が異なります。
+
+
+
+
+設定例
 
 ;; Emacs-BGEX patch
 (when (boundp 'bgex-exist-p)
   (require 'bgex)
-; �ǥե���Ȥ��طʤȤ��� "~/.Emacs22/.emacs21_back.xpm" �����
-  (bgex-set-image-default "~/.Emacs22/.emacs21_back.xpm")
+; デフォルトの背景として "~/.emacs.d/images/background.xpm" を設定
+  (bgex-set-image-default "~/.emacs.d/images/background.xpm")
 
-; html-mode ��(major-mode ���Ф���)�طʿ������
+; html-mode の(major-mode に対して)背景色を設定
   (bgex-set-color "HTML" 'bgex-identifier-type-major-mode '(60000 40000 40000))
 
-; *scratch* ��(�Хåե�̾���Ф���)�طʿ������
+; *scratch* の(バッファ名に対して)背景色を設定
   (bgex-set-color "*scratch*" 'bgex-identifier-type-buffer-name "skyblue"))
 
 
 
 
-�ѿ�
+概要
 
-	Variable: bgex-exist-p
-		bgex ���Ȥ߹��ޤ줿 Emacs ���������ޤ���
+        BGEX は下記のような 3 つの実装レイヤで実装されています。
 
 
+            1. BGEX
 
+                「bgex.el」
 
-�ؿ�
+                Emacs-Lisp で実装されています。
 
-	bgex-
+            2. BGEXI
 
-		�ץ�ե����� bgex- ���դ��ؿ��Ͼ�̥�٥�δؿ��Ǥ�����
-		��桼���Ϥ����δؿ������ޤ���
+                背景描画と「struct bgexi_object」を扱う内部実装です。
 
-	Function: bgex-strict
+                C で実装されています。
 
-		����⡼�ɤ�����ͥ��ˤ��뤳�Ȥ��������ޤ���
+            3. BGEXID
 
-		��������⡼�ɤǤ� CPU �ȥͥåȥ���Ӱ�����ˤ��Ƹ�
-		̩����ͥ�褷�ޤ���
+                「struct bgexi_object」を major-mode と buffer-name に
+                関連付ける内部実装です。
 
-		�ǥե���Ȥ�����⡼�ɤϼ�����ץ�åȥե������¸�ˤ�
-		��ޤ���
+                C で実装されています。
 
-	Function: bgex-fast
 
-		����⡼�ɤ�®��ͥ��ˤ��뤳�Ȥ��������ޤ���
+        ウィンドウに対する背景画像処理の描画部
 
-		��������⡼�ɤǤϲ��̤����뤳�Ȥ�����ޤ��� CPU ��ǽ
-		���㤤����ͥåȥ���ۤ��ǰ������ʤɤ�ͭ���Ǥ���
+            ウィンドウに対する背景画像処理に関する描画部は、 xterm.c
+            内の背景塗り潰しと文字列描画処理を強引に置き換える形で実装
+            しています。これは通常の X による背景 Pixmap 処理
+            (XSetWindowBackgroundPixmap()) に比べ、非常に高価なものに
+            なります。具体的には X を低速なネットワーク越しで扱うとき
+            に極端な速度低下を招きます。
 
-		�ǥե���Ȥ�����⡼�ɤϼ�����ץ�åȥե������¸�ˤ�
-		��ޤ���
+            xterm.c では塗り潰しを XFillRectangle, XClearArea か
+            XCopyAreaで行ないますが、これを必要なときに内部関数である
+            bgexi_fill_rectangle@xfns.c に置き換えています。
 
-	Function: bgex-enable
+            しかし XFillRectangle,XClearArea と bgexi_fill_rectangle
+            は機能的に可換(*1)ですが、 XCopyArea はその意味が異なるの
+            で当然問題が生じます。この問題は強制的に expose_window に
+            より再描画させることで解決しています。このため BGEX が有効
+            な場合、通常より無駄な処理が発生することになります。
 
-		BGEX ��ͭ���ˤ��ޤ���
+            更に window 書き換えの最適化を意図的に抑えている部分もあり
+            ます。これは本来書き換えの必要の無い背景部を BGEX では書き
+            換える必要があるためです。
 
-	Function: bgex-disable
+                (*1) XClearArea は GC による clip-mask が使えないなど、
+                厳密には機能が異なる。
 
-		BGEX ��̵�������ޤ���
 
-	Function: bgex-set-image-default FILENAME &optional dynamic-color-p
+        初期化
 
-		���� FILENAME �ˤ��طʲ����Ȥ��ƻ��Ѥ���ե�����̾���
-		�ꤷ�ޤ���
+            初期化関数として bgexi-create がありますが、これは初期化の
+            トリガを引くだけです。実際の初期化はここではなく
+            bgexi_fill_rectangle 内になります。このため bgexi-create
+            を呼び、画面の更新が無い場合は画面は何も変わりません。
 
-		�ե졼�����Τ�ͭ�����طʲ�������ꤷ�ޤ���
 
-		dynamic-color-p �� Non-nil �ʤ�п��դ����ΰ���طʿ���
-		�ƶ�������������Ĳ�����ɽ�����ޤ����㤨���طʤ��Ĥ�
-		��С���Ȥ��������Ĥαƶ���������Ĥäݤ����ˤʤ�ޤ���
-		�׻����� SRC * DST / factor �Ǥ������Υ⡼�ɤ� CPU ����
-		�٤�������ޤ���
+        動的色生成モード
 
-	Function: bgex-set-color-default COLOR &optional dynamic-color-p
+            COLOR = SRC fill color * DST image / FACTOR
 
-		���� FILENAME �ˤ��طʿ��Ȥ��ƻ��Ѥ��뿧����ꤷ�ޤ���
+            FACTOR は関数 bgexi-set-dynamic-color-factor で設定します。
 
-		�ե졼�����Τ�ͭ�����طʿ�����ꤷ�ޤ���
+            このモードは CPU に負荷がかかります。
 
-		dynamic-color-p �� Non-nil �ʤ�п��դ����ΰ���طʿ���
-		�ƶ������������ɽ�����ޤ����㤨���طʤ��֤ʤ�С����
-		���������֤αƶ���������֤ߤ��ӤӤ����ˤʤ�ޤ���
 
-	Function: bgex-destroy-default
+        デフォルト背景
 
-		�ե졼�����Τ�ͭ�����طʤ������ޤ���
+            デフォルト背景は、フレーム全体に適用される背景です。
 
-	Function: bgex-set-image IDENTIFIER TYPE FILENAME &optional dynamic-color-p
 
-		������ɥ����Ф����طʲ�������ꤷ�ޤ���
 
-		TYPE �ˤϼ��Υ���ܥ뤬����Ǥ��ޤ���
 
-			'bgex-identifier-type-major-mode
+変数
 
-				FILENAME �ǻ��ꤵ��������
-				IDENTIFIER �Ǥ���蘆��� major-mode ��
-				������ɥ��طʤˤ��ޤ���
+        Variable: bgex-exist-p
 
-			'bgex-identifier-type-major-mode-regexp
+                bgex が組み込まれた Emacs で定義されます。
 
-				FILENAME �ǻ��ꤵ��������
-				IDENTIFIER �Ǥ���蘆��� major-mode ��
-				������ɥ��طʤˤ��ޤ���major-mode �ˤ�
-				regexp �����ѤǤ��ޤ���
 
-			'bgex-identifier-type-buffer-name
 
-				FILENAME �ǻ��ꤵ��������
-				IDENTIFIER �Ǥ���蘆���Хåե�̾���
-				�ĥ�����ɥ����طʤˤ��ޤ���
 
-			'bgex-identifier-type-buffer-name-regexp
+関数
 
-				FILENAME �ǻ��ꤵ��������
-				IDENTIFIER �Ǥ���蘆���Хåե�̾���
-				�ĥ�����ɥ����طʤˤ��ޤ����Хåե�̾
-				�ˤ� regexp �����ѤǤ��ޤ���
+        廃止! Function: bgex-strict
 
-		dynamic-color-p �� Non-nil �ʤ�п��դ����ΰ���طʿ���
-		�ƶ�������������Ĳ�����ɽ�����ޤ����㤨���طʤ��Ĥ�
-		��С���Ȥ��������Ĥαƶ���������Ĥäݤ����ˤʤ�ޤ���
-		���Υ⡼�ɤ� CPU ����٤�������ޤ���
+                描画モードを精度優先にすることを明示します。
 
-	Function: bgex-set-color IDENTIFIER TYPE COLOR &optional dynamic-color-p
+                この描画モードでは CPU とネットワーク帯域を犠牲にして厳
+                密さを優先します。
 
-		������ɥ����Ф����طʿ�����ꤷ�ޤ���
+                デフォルトの描画モードは実装やプラットフォーム依存にな
+                ります。
 
-		TYPE �� bgex-set-image ��Ʊ����Τ����ѤǤ��ޤ���
+        廃止! Function: bgex-fast
 
-		COLOR �Ͽ�̾��ʸ���� (r g b) �Τ褦�ʥꥹ�Ȥ���ꤹ��
-		���Ȥ��Ǥ��ޤ���
+                描画モードを速度優先にすることを明示します。
 
-		dynamic-color-p �� Non-nil �ʤ�п��դ����ΰ���طʿ���
-		�ƶ������������ɽ�����ޤ����㤨���طʤ��֤ʤ�С����
-		���������֤αƶ���������֤ߤ��ӤӤ����ˤʤ�ޤ���
+                この描画モードでは画面が乱れることがあります。 CPU 性能
+                が低い場合やネットワーク越しで扱う場合などに有効です。
 
-	Function: bgex-destroy IDENTIFIER TYPE
+                デフォルトの描画モードは実装やプラットフォーム依存にな
+                ります。
 
-		������ɥ����Ф����طʤ������ޤ���
+        Function: bgex-enable
 
-	Function: bgex-destroy-all
+                BGEX を有効にします。
 
-		���Ƥ��طʤ������ޤ���
+        Function: bgex-disable
 
+                BGEX を無効化します。
 
+        Function: bgex-set-image-default FILENAME &optional dynamic-color-p
 
+                デフォルトの背景画像を設定します。
 
-	bgexid-
+        Function: bgex-set-color-default COLOR &optional dynamic-color-p
 
-		�ץ�ե����� bgexid- ���դ��ؿ��� BGEXID �򰷤��ޤ���
+                デフォルトの背景色を設定します。
 
-		�����ؿ��Ǥ��Τǡ��桼�����̾￨��뤳�ȤϤ���ޤ���
+        Function: bgex-destroy-default
 
-	Function: bgexid-create IDENTIFIER TYPE
+                デフォルトの背景を削除します。
 
-		���δؿ��� BGEXID �����������֤��ޤ��� BGEX �ǤϤ�����
-		������ BGEXID ��𤷤��طʤ��Ф���᥽�åɤ�ȯ�Ԥ���
-		����
+        Function: bgex-set-image IDENTIFIER TYPE FILENAME &optional dynamic-color-p
 
-		���顼��ȯ���������� nil ���֤��ޤ���
+                ウィンドウに対する背景画像を設定します。
 
-		���� IDENTIFIER �ˤϥХåե����᥸�㡼�⡼�ɤޤ��ϥޥ�
-		�ʡ��⡼�ɤ�̾������ꤷ�ޤ���
+                TYPE には次のシンボルが設定できます。
 
-		TYPE �� bgex-identifier-type-default �ΤȤ��Τ� nil
-		����ꤹ�뤳�Ȥ��Ǥ��ޤ���
+                        'bgex-identifier-type-major-mode
 
-		���� TYPE �� IDENTIFIER �μ������ꤷ�ޤ�������Ǥ���
-		�ͤȰ�̣�ϼ��Τ褦�ˤʤ�ޤ���
+                                FILENAME で指定される画像を、
+                                IDENTIFIER であらわされる major-mode の
+                                ウィンドウ背景にします。
 
-		bgex-identifier-type-default
+                        'bgex-identifier-type-major-mode-regexp
 
-			�����ͤ� BGEX �ˤ������ü�ʤ�Τ� BGEXID == 0
-			���Ǥ�����ư�Ǥ��ʤ����Ĥޤ� Emacs ��ưľ�����
-			�ꤷ�ʤ���Фʤ�ʤ���
+                                FILENAME で指定される画像を、
+                                IDENTIFIER であらわされる major-mode の
+                                ウィンドウ背景にします。major-mode には
+                                regexp が使用できます。
 
-			�����ͤ����ꤵ�줿 BGEXID �������硢�ǥե���
-			���طʡ��Ĥޤ겿����ꤷ�ʤ������طʤȤ��ơ�
-			���� BGEXID �����Ѥ���롣
+                        'bgex-identifier-type-buffer-name
 
-			�����ͤ��ü�ǡ�ʣ���� BGEXID ���Ф��ƻ��Ѥ���
-			���ȤϤǤ��ʤ���
+                                FILENAME で指定される画像を、
+                                IDENTIFIER であらわされるバッファ名を持
+                                つウィンドウの背景にします。
 
-			�����ͤˤ�����褵����طʲ����� X ���طʲ�����
-			ǽ��Ȥ����ᡢ��äȤ��®�Ǥ��롣
+                        'bgex-identifier-type-buffer-name-regexp
 
-			�ʤ� IDENTIFIER �ϻ��Ȥ���ʤ������ξ��Τ�
-			IDENTIFIER �� nil ����ꤹ�뤳�Ȥ��Ǥ��롣
+                                FILENAME で指定される画像を、
+                                IDENTIFIER であらわされるバッファ名を持
+                                つウィンドウの背景にします。バッファ名
+                                には regexp が使用できます。
 
-		bgex-identifier-type-major-mode
+                dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+                影響を受けた色をもつ画像で表現します。例えば背景が青な
+                らば、白という色は青の影響を受け、青っぽい色になります。
+                このモードは CPU に負荷がかかります。
 
-			IDENTIFIER �ϥ᥸�㡼�⡼��̾�Ǥ��롣
+        Function: bgex-set-color IDENTIFIER TYPE COLOR &optional dynamic-color-p
 
-		bgex-identifier-type-major-mode-regexp
+                ウィンドウに対する背景色を設定します。
 
-			IDENTIFIER �ϥ᥸�㡼�⡼��̾�Ǥ��롣
+                TYPE は bgex-set-image と同じものが使用できます。
 
-		bgex-identifier-type-buffer-name
+                COLOR は色名の文字列か (r g b) のようなリストを指定する
+                ことができます。
 
-			IDENTIFIER �ϥХåե�̾�Ǥ��롣
+                dynamic-color-p が Non-nil ならば色付きの領域を背景色の
+                影響を受けた色で表現します。例えば背景が赤ならば、白と
+                いう色は赤の影響を受け、赤みを帯びた色になります。
 
-		bgex-identifier-type-buffer-name-regexp
+        Function: bgex-destroy IDENTIFIER TYPE
 
-			IDENTIFIER �ϥХåե�̾�Ǥ��롣
+                ウィンドウに対する背景を削除します。
 
-	Function: bgexid-destroy BGEXID
+        Function: bgex-destroy-all
 
-		���δؿ��ϻ��ꤵ�줿 BGEXID ����� BGEX ���֥������Ȥ�
-		�˲���Ʊ���� bgexid ��������ޤ���
+                全ての背景を削除します。
 
-		���顼��ȯ���������� Non-nil ���֤��ޤ���
 
-	Function: bgexid-get-bgexid-list
 
-		������Ͽ����Ƥ��� bgexid �� list ���֤��ޤ���
 
-		bgexid �� 0,1,5 ��ͭ���ʤ��
+        bgexid-
 
-		(0 1 5)
+                プレフィクス bgexid- が付く関数は BGEXID を扱います。
 
-		���֤�ޤ���
+                内部関数ですので、ユーザは通常触れることはありません。
 
-		bgexi-get-bgexid-list �Ȥΰ㤤�� bgexid �⥸�塼��¦�ξ�
-		�֤��֤����ȤǤ����̾�λ��ѤǤ� bgexi-get-bgexid-list
-		��Ʊ���ͤˤʤ�ޤ���
+        Function: bgexid-create IDENTIFIER TYPE
 
-	Function: bgexid-add BGEXID IDENTIFIER TYPE
+                この関数は BGEXID を生成して返します。 BGEX ではここで
+                得られる BGEXID を介して背景に対するメソッドを発行しま
+                す。
 
-		���ꤷ�� BGEXID �� IDENTIFIER,TYPE ���ɲä��ޤ���
+                エラーが発生した場合に nil を返します。
 
-		���顼��ȯ���������� Non-nil ���֤��ޤ���
+                引数 IDENTIFIER にはバッファ、メジャーモードまたはマイ
+                ナーモードの名前を指定します。
 
-		���� IDENTIFIER �� TYPE �� bgexid-get-id ��Ʊ����̣���
-		���ޤ���
+                TYPE が bgex-identifier-type-default のときのみ nil
+                を指定することができます。
 
-	Function: bgexid-delete BGEXID IDENTIFIER TYPE
+                引数 TYPE は IDENTIFIER の種類を指定します。指定できる
+                値と意味は次のようになります。
 
-		���ꤷ�� BGEXID ���� IDENTIFIER,TYPE �������ޤ���
+                bgex-identifier-type-default
 
-		���顼��ȯ���������� Non-nil ���֤��ޤ���
+                        この値は BGEX において特殊なもので BGEXID == 0
+                        、でしか起動できない。つまり Emacs 起動直後に設
+                        定しなければならない。
 
-		���� IDENTIFIER �� TYPE �� bgexid-get-id ��Ʊ����̣���
-		���ޤ���
+                        この値を設定された BGEXID がある場合、デフォル
+                        ト背景、つまり何も指定しない場合の背景として、
+                        この BGEXID が使用される。
 
-	Function: bgexid-get-identifier BGEXID
+                        この値は特殊で、複数の BGEXID に対して使用する
+                        ことはできない。
 
-		BGEXID ���Ф��� IDENTIFIER �� TYPE �� list ���֤��ޤ���
+                        この値により描画される背景画像は X の背景画像機
+                        能を使うため、もっとも高速である。
 
-		�֤���� list ��
+                        なお IDENTIFIER は参照されない。この場合のみ
+                        IDENTIFIER に nil を指定することができる。
 
-		'((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+                bgex-identifier-type-major-mode
 
-		�Τ褦�ʹ�¤�Ǥ���
+                        IDENTIFIER はメジャーモード名である。
 
+                bgex-identifier-type-major-mode-regexp
 
+                        IDENTIFIER はメジャーモード名である。
 
+                bgex-identifier-type-buffer-name
 
-	bgexi-
+                        IDENTIFIER はバッファ名である。
 
-		�ץ�ե����� bgexi- ���դ��ؿ��� BGEX ���֥������Ȥ򰷤�
-		�ޤ���
+                bgex-identifier-type-buffer-name-regexp
 
-		�����ؿ��Ǥ��Τǡ��桼�����̾￨��뤳�ȤϤ���ޤ���
+                        IDENTIFIER はバッファ名である。
 
-	Function: bgexi-create BGEXID RENDERMODE DYNAMICMODE COLOR &optional FILENAME
+        Function: bgexid-destroy BGEXID
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ��������ޤ���
+                この関数は設定された BGEXID を持つ BGEX オブジェクトの
+                破壊と同時に bgexid を解放します。
 
-		���顼��ȯ���������� Non-nil ���֤��ޤ���
+                エラーが発生した場合に Non-nil を返します。
 
-		�̾��ľ��ˡ��ؿ� redraw-display ��ƤӽФ�������Ū��
-		�������¹Ԥ���ɬ�פ�����ޤ���
+        Function: bgexid-get-bgexid-list
 
-		���� RENDERMODE �ˤ��ɤ��٤��⡼�ɤ���ꤷ�ޤ��������
-		�����ͤȰ�̣�ϼ��Τ褦�ˤʤ�ޤ���
+                現在登録されている bgexid の list を返します。
 
-		Non-nil
-			�طʲ������ɤ��٤��ޤ���
-		nil
-			�طʿ����ɤ��٤��ޤ���
+                bgexid の 0,1,5 が有効ならば
 
-		���� DYNAMICMODE �ˤϿ�����ˡ����ꤷ�ޤ�������Ǥ�����
-		�Ȱ�̣�ϼ��Τ褦�ˤʤ�ޤ���
+                (0 1 5)
 
-		Non-nil
-			ưŪ�˿����������ޤ���
-		nil
-			�طʿ��Τ����ޤ���
+                が返ります。
 
-		���� FILENAME �ˤ��طʲ����Ȥ��ƻ��Ѥ���ե�����̾���
-		�ꤷ�ޤ���nil �ޤ��ϥե�����̾�ǻ��ꤵ�줿������̵����
-		��硢�ɤ��٤��⡼�ɤ϶���Ū���طʿ��⡼�ɤˤʤ�ޤ���
+                bgexi-get-bgexid-list との違いは bgexid モジュール側の状
+                態を返すことです。通常の使用では bgexi-get-bgexid-list
+                と同じ値になります。
 
-		���� COLOR ���طʿ�����ꤷ�ޤ�������� '(r,g,b) �Τ褦
-		�ʥꥹ�ȡ� nil �ޤ��Ͽ�̾��ʸ�������ꤷ�ޤ��� nil ��
-		���������طʿ�����Ѥ��ޤ��� r,g,b �������� 0-65535
-		���ϰϤ�Ȥ�ޤ���
+        Function: bgexid-add BGEXID IDENTIFIER TYPE
 
-	Function: bgexi-destroy BGEXID
+                指定した BGEXID に IDENTIFIER,TYPE を追加します。
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ��˲�������
-		���ޤ���
+                エラーが発生した場合に Non-nil を返します。
 
-		���顼��ȯ���������� Non-nil ���֤��ޤ���
+                引数 IDENTIFIER と TYPE は bgexid-get-id と同じ意味を持
+                ちます。
 
-		�̾��ľ��ˡ��ؿ� redraw-display ��ƤӽФ�������Ū��
-		�������¹Ԥ���ɬ�פ�����ޤ���
+        Function: bgexid-delete BGEXID IDENTIFIER TYPE
 
-	Function: bgexi-enable
+                指定した BGEXID から IDENTIFIER,TYPE を削除します。
 
-		BGEX ��ͭ�������ޤ���
+                エラーが発生した場合に Non-nil を返します。
 
-		��� nil ���֤��ޤ���
+                引数 IDENTIFIER と TYPE は bgexid-get-id と同じ意味を持
+                ちます。
 
-	Function: bgexi-disable
+        Function: bgexid-get-identifier BGEXID
 
-		BGEX ��̵�������ޤ���
+                BGEXID に対する IDENTIFIER と TYPE の list を返します。
 
-		��� nil ���֤��ޤ���
+                返される list は
 
-	Function: bgexi-set-draw-strict
+                '((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
 
-		����⡼�ɤ�����ͥ��ˤ��뤳�Ȥ��������ޤ���
+                のような構造です。
 
-		��������⡼�ɤǤ� CPU �ȥͥåȥ���Ӱ�����ˤ��Ƹ�
-		̩����ͥ�褷�ޤ���
 
-		�ǥե���Ȥ�����⡼�ɤϼ�����ץ�åȥե������¸�ˤ�
-		��ޤ���
 
-		��� nil ���֤��ޤ���
 
-	Function: bgexi-set-draw-fast
+        bgexi-
 
-		����⡼�ɤ�®��ͥ��ˤ��뤳�Ȥ��������ޤ���
+                プレフィクス bgexi- が付く関数は BGEX オブジェクトを扱い
+                ます。
 
-		��������⡼�ɤǤϲ��̤����뤳�Ȥ�����ޤ��� CPU ��ǽ
-		���㤤����ͥåȥ���ۤ��ǰ������ʤɤ�ͭ���Ǥ���
+                内部関数ですので、ユーザは通常触れることはありません。
 
-		�ǥե���Ȥ�����⡼�ɤϼ�����ץ�åȥե������¸�ˤ�
-		��ޤ���
+        Function: bgexi-create BGEXID RENDERMODE DYNAMICMODE COLOR &optional FILENAME
 
-		��� nil ���֤��ޤ���
+                指定した BGEXID に対する BGEX オブジェクトを生成します。
 
-	Function: bgexi-get-bgexid-list
+                エラーが発生した場合に Non-nil を返します。
 
-		������Ͽ����Ƥ��� bgexid �� list ���֤��ޤ���
+                関数 redraw-display を呼び出し、明示的に再描画を実行す
+                る必要があります。
 
-		bgexid �� 0,1,5 ��ͭ���ʤ��
+                引数 RENDERMODE には塗り潰しモードを指定します。指定で
+                きる値と意味は次のようになります。
 
-		(0 1 5)
+                Non-nil
+                        背景画像で塗り潰します。
+                nil
+                        背景色で塗り潰します。
 
-		���֤�ޤ���
+                引数 DYNAMICMODE には色生成法を指定します。指定できる値
+                と意味は次のようになります。
 
-		bgexid-get-bgexid-list �Ȥΰ㤤�� bgexi �⥸�塼��¦�ξ�
-		�֤��֤����ȤǤ����̾�λ��ѤǤ�
-		bgexid-get-bgexid-list ��Ʊ���ͤˤʤ�ޤ���
+                Non-nil
+                        動的に色を生成します。
+                nil
+                        背景色のみ操作します。
 
-	Function: bgexi-get-identifier BGEXID
+                引数 FILENAME には背景画像として使用するファイル名を指
+                定します。nil またはファイル名で指定された画像が無効な
+                場合、塗り潰しモードは強制的に背景色モードになります。
 
-		BGEXID ���Ф��� IDENTIFIER �� TYPE �� list ���֤��ޤ���
+                引数 COLOR は背景色を指定します。指定は '(r,g,b) のよう
+                なリスト、 nil または色名の文字列を指定します。 nil な
+                らば本来の背景色を使用します。 r,g,b は整数で 0-65535
+                の範囲をとります。
 
-		�֤���� list ��
+        Function: bgexi-destroy BGEXID
 
-		'((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
+                指定した BGEXID に対する BGEX オブジェクトを破壊、解放
+                します。
 
-		�Τ褦�ʹ�¤�Ǥ���
+                エラーが発生した場合に Non-nil を返します。
 
-	Function: bgexi-set-active-flag BGEXID FLAG
+                関数 redraw-display を呼び出し、明示的に再描画を実行す
+                る必要があります。
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ����椹���
-		�饰�����ꤷ�ޤ��� Non-nil �ʤ��ͭ�������ޤ�������ͤ�
-		���ꤵ��������ͤǤ���
+        Function: bgexi-enable
 
-	Function: bgexi-get-active-flag BGEXID
+                BGEX を有効化します。
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ����椹���
-		�饰�����ޤ���
+                常に nil を返します。
 
-	Function: bgexi-get-render-mode BGEXID
+        Function: bgexi-disable
 
-		�ɤ��٤��⡼�ɤ����ޤ��� Non-nil �ʤ���طʲ����ǡ�
-		nil �ʤ���طʿ����ɤ��٤��ޤ���
+                BGEX を無効化します。
 
-	Function: bgexi-set-dynamic-color-flag BGEXID FLAG
+                常に nil を返します。
 
-		ưŪ�˿����������뤫�ɤ�������ꤷ�ޤ���
+        廃止! Function: bgexi-set-draw-strict
 
-		����ͤ����ꤵ��������ͤǤ���
+                描画モードを精度優先にすることを明示します。
 
-		bgexi-create �ʤɤ�Ʊ�ͤˡ��ؿ� redraw-display ��Ƥӽ�
-		��������Ū�˺������¹Ԥ���ɬ�פ�����ޤ���
+                この描画モードでは CPU とネットワーク帯域を犠牲にして厳
+                密さを優先します。
 
-	Function: bgexi-get-dynamic-color-flag BGEXID
+                デフォルトの描画モードは実装やプラットフォーム依存にな
+                ります。
 
-		ưŪ�˿����������뤫�ɤ����Υե饰�����ޤ���
+                常に nil を返します。
 
-	Function: bgexi-set-factor BGEXID factor
+        廃止! Function: bgexi-set-draw-fast
 
-		ưŪ�˿��������Ȥ��Υѥ�᡼������ꤷ�ޤ���
+                描画モードを速度優先にすることを明示します。
 
-		����ͤ����ꤵ��������ͤǤ���
+                この描画モードでは画面が乱れることがあります。 CPU 性能
+                が低い場合やネットワーク越しで扱う場合などに有効です。
 
-	Function: bgexi-get-factor BGEXID
+                デフォルトの描画モードは実装やプラットフォーム依存にな
+                ります。
 
-		ưŪ�˿��������Ȥ��Υѥ�᡼�������ޤ���
+                常に nil を返します。
 
-	Function: bgexi-set-image-filename BGEXID FILENAME
+        Function: bgexi-get-bgexid-list
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ� FILENAME
-		�ǻ��ꤷ���طʲ�������ꤷ�ޤ���
+                現在登録されている bgexid の list を返します。
 
-		���δؿ��ϻ��ꤷ�� BGEX ���֥������Ȥ��˴�������������
-		���� bgexi-create �ʤɤ�Ʊ�ͤˡ��ؿ� redraw-display ���
-		�ӽФ�������Ū�˺������¹Ԥ���ɬ�פ�����ޤ���
+                bgexid の 0,1,5 が有効ならば
 
-	Function: bgexi-get-image-filename BGEXID
+                (0 1 5)
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ����ꤵ�줿
-		�طʲ����ե�����̾��������ޤ���
+                が返ります。
 
-	Function: bgexi-set-color BGEXID COLOR
+                bgexid-get-bgexid-list との違いは bgexi モジュール側の状
+                態を返すことです。通常の使用では
+                bgexid-get-bgexid-list と同じ値になります。
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ� COLOR �ǻ�
-		�ꤷ���طʿ������ꤷ�ޤ��� COLOR �λ���� bgex-create
-		��Ʊ���ե����ޥåȤǤ���
+        Function: bgexi-get-identifier BGEXID
 
-		����ͤ����ꤵ��������ͤǤ���
+                BGEXID に対する IDENTIFIER と TYPE の list を返します。
 
-		bgexi-create �ʤɤ�Ʊ�ͤˡ��ؿ� redraw-display ��Ƥӽ�
-		��������Ū�˺������¹Ԥ���ɬ�פ�����ޤ���
+                返される list は
 
-	Function: bgexi-get-color BGEXID
+                '((TYPE0 . IDENTIFIER0) (TYPE1 . IDENTIFIER1))
 
-		���ꤷ�� BGEXID ���Ф��� BGEX ���֥������Ȥ����ꤵ�줿
-		�طʿ���������ޤ�������ͤ� (r g b) �Τ褦�ʥꥹ�ȤǤ���
+                のような構造です。
 
-	BETA! Function: bgexi-redraw-window WINDOW
+        廃止! Function: bgexi-set-active-flag BGEXID FLAG
 
-		���ꤷ�� WINDOW �˺�����ꥯ�����Ȥ�ȯ�Ԥ��ޤ���
+                指定した BGEXID に対する BGEX オブジェクトを制御するフ
+                ラグを設定します。 Non-nil ならば有効化します。戻り値は
+                設定される前の値です。
 
+        廃止! Function: bgexi-get-active-flag BGEXID
 
+                指定した BGEXID に対する BGEX オブジェクトを制御するフ
+                ラグを得ます。
 
+        Function: bgexi-set-enabled BGEXID FLAG
 
-����
+                指定した BGEXID に対する BGEX オブジェクトの有効化制御
+                フラグを設定します。
+                (戻り値を返さないように変更する)
 
-	BGEX �ϡ�����̾���ΤȤ��� Emacs21 �������طʤ��ĥ�����Τǡ�
-	�����ϻ�ǰ�ʤ��餪�����ˤ���������ΤȤϤ����ޤ���C �Ǽ�����
-	�줿�쥤��� elisp �Ǽ������줿�쥤�䤬���ꡢ�̾�桼����
-	elisp �Ǽ������줿�쥤��ˤΤ߿���뤳�Ȥˤʤ�ޤ���
+        Function: bgexi-enabled-p BGEXID
 
+                指定した BGEXID に対する BGEX オブジェクトが有効か調べ
+                ます。
 
-- �����쥤��
+        Function: bgexi-get-render-mode BGEXID
 
-	BGEX �ˤϼ��Τ褦�� 3 �ؤμ����쥤�䤬����ޤ���
+                描画モードを得ます。 Non-nil ならば背景画像で、
+                nil ならば背景色で塗り潰します。
 
-	1. bgex
-	2. bgexi
-	3. bgexid
+        Function: bgexi-set-dynamic-color-flag BGEXID FLAG
 
-	bgex �쥤�䤬�̾�桼��������륤�󥿡��ե�����
-	�Ǥ��� elisp �Ǽ�������Ƥ��ޤ���
+                動的に色を生成するかどうかを設定します。
 
-	bgexi �쥤��Ǥ� BGEX ���֥������ȤȸƤФ�륪�֥������Ȥ򰷤�
-	�ޤ��� BGEX ���֥������Ȥϳ�ĥ��ǽ���ݻ����륪�֥������ȤǤ���
-	C �Ǽ�������Ƥ��ޤ���
+                関数 redraw-display を呼び出し、明示的に再描画を実行す
+                る必要があります。
 
-	bgexid �쥤��� BGEXID �ȸƤФ��������������ޤ��� BGEXID ��
-	BGEX ���֥������Ȥ� major-mode �� buffer-name ���Ϣ�դ��ޤ���
-	C �Ǽ�������Ƥ��ޤ���
+        Function: bgexi-get-dynamic-color-flag BGEXID
 
+                動的に色を生成するかどうかのフラグを得ます。
 
-- ������ɥ����Ф����طʲ���������������
+        廃止! Function: bgexi-set-factor BGEXID factor
 
-	������ɥ����Ф����طʲ��������˴ؤ����������ϡ� xterm.c �����
-	���ɤ��٤���ʸ������������򶯰����֤���������Ǽ������Ƥ��ޤ���
-	������̾�� X �ˤ���ط� Pixmap ����
-	(XSetWindowBackgroundPixmap()) ����١����˹���ʤ�Τˤʤ��
-	��������Ū�ˤ� X ����®�ʥͥåȥ���ۤ��ǰ����Ȥ��˶�ü��®��
-	�㲼�򾷤��ޤ���
+                動的に色を生成ときのパラメータを設定します。
 
-	xterm.c �Ǥ��ɤ��٤��� XFillRectangle,XClearArea �� XCopyArea
-	�ǹԤʤ��ޤ����������ɬ�פʤȤ��������ؿ��Ǥ���
-	bgexi_fill_rectangle@xfns.c ���֤������Ƥ��ޤ���
+                戻り値は設定される前の値です。
 
-	������ XFillRectangle,XClearArea �� bgexi_fill_rectangle �ϵ�ǽ
-	Ū�˲Ĵ�(*1)�Ǥ����� XCopyArea �Ϥ��ΰ�̣���ۤʤ�Τ��������꤬
-	�����ޤ�����������϶���Ū�� expose_window �ˤ������褵���뤳
-	�Ȥǲ�褷�Ƥ��ޤ������Τ��� BGEX ��ͭ���ʾ�硢�̾���̵�̤�
-	������ȯ�����뤳�Ȥˤʤ�ޤ���
+        廃止! Function: bgexi-get-factor BGEXID
 
-	���� window �񤭴����κ�Ŭ����տ�Ū���ޤ��Ƥ�����ʬ�⤢��ޤ���
-	���������񤭴�����ɬ�פ�̵���ط����� BGEX �ǤϽ񤭴�����ɬ��
-	�����뤿��Ǥ���
+                動的に色を生成ときのパラメータを得ます。
 
-(*1) XClearArea �� GC �ˤ�� clip-mask ���Ȥ��ʤ��ʤɡ���̩�ˤϵ�ǽ����
-     �ʤ롣
+        Function: bgexi-set-dynamic-color-factor BGEXID factor
 
+                動的色生成モードの factor を設定します。
 
+        Function: bgexi-get-dynamic-color-factor BGEXID
 
+                動的色生成モードの factor を取得します。
 
-- �����
+        Function: bgexi-set-image-filename BGEXID FILENAME
 
-	������ؿ��Ȥ��� bgexi-create ������ޤ���������Ͻ�����Υȥ�
-	������������Ǥ����ºݤν�����Ϥ����ǤϤʤ�
-	bgexi_fill_rectangle ��ˤʤ�ޤ������Τ��� bgexi-create ��Ƥӡ�
-	���̤ι�����̵�����ϲ��̤ϲ����Ѥ��ޤ���
+                指定した BGEXID に対する BGEX オブジェクトに FILENAME
+                で指定した背景画像を設定します。
 
+                関数 redraw-display を呼び出し、明示的に再描画を実行す
+                る必要があります。
 
-- Pixmap GC
+        Function: bgexi-get-image-filename BGEXID
 
-	20080305_0 ��������طʲ�����ưŪ�����⡼�ɤǤϡ� Pixmap ��̵��
-	��ɬ�פˤʤ�ޤ������������񸻤ˤϸ¤꤬���뤿�����Ĺ��
-	Pixmap �ΰ�� LRU *Ū*�����ǻȤ��ޤ路�ޤ�������˴ؤ��븽�ߤ�
-	�����Ϥ��ޤ긭����ΤǤϤ���ޤ��󤬡��Ȥꤢ�����Ѥ�ʤ��Ƥ���
-	�褦�Ǥ���
+                指定した BGEXID に対する BGEX オブジェクトに設定された
+                背景画像ファイル名を取得します。
 
-	20080305_0 �ʹߤǤ�������˲�������������褦�ˤʤä����ᡢ����
-	��ǽ���ѻߤ���Ƥ��ޤ���
+        Function: bgexi-set-color BGEXID COLOR
 
-	(20080305_0 ������Ͼ����ʥƥ�������򥿥���󥰤����뤳�Ȥ���
-	 ��Ȥ����߷פǡ����餫���� Pixmap ���äƤ������Ȥǹ�®��������
-	 �Ƥ��ޤ��������礭�ʥƥ��������Ȥ����˶�ü��®���㲼�򾷤�
-	 �Ƥ��ޤ����� 20080305_0 �ʹߤǤϾ����ʥƥ�������ξ�硢�㴳®
-	 �٤��㲼�����ǽ���Ϥ���ޤ������礭�ʥƥ�������Ǥ����Ū��®
-	 �٤��Ф�褦���߷פˤʤäƤ��ޤ���)
+                指定した BGEXID に対する BGEX オブジェクトに COLOR で指
+                定した背景色を設定します。 COLOR の指定は bgex-create
+                と同じフォーマットです。
 
+                戻り値は設定される前の値です。
 
+                関数 redraw-display を呼び出し、明示的に再描画を実行す
+                る必要があります。
 
+        Function: bgexi-get-color BGEXID
 
-�Х�
+                指定した BGEXID に対する BGEX オブジェクトに設定された
+                背景色を取得します。戻り値は (r g b) のようなリストです。
 
-	ʣ���ե졼��ν�������������
+        Function: bgexi-redraw-window WINDOW
 
-	�����ե�����ޤ��ǥ��顼��ȯ������ȥϥ󥰥��åפ����ǽ����
-	���롣
-
-	X �˰�¸���Ƥ��롣
-
-	�б��ե����ޥåȤ� XPM,JPEG,PNG �Τߡ�
-
-	��®����⡼�ɤ� modeline �������뤳�Ȥ����롣 (GC ��
-	clip-mask ����Ԥ��Ƥ�����֤� XClearArea �����Ѥ��Ƥ��뤿�ᡣ)
-
-	��Ψ�򤢤ޤ���׻뤷�Ƥ��ʤ������Ǥ��롣
-
-
-
-
-TODO
-
-	�ʤ������� Emacs-GLEX patch ��ͽ�ꤷ�Ƥ���Τǡ�(���Ĥˤʤ뤳�Ȥ�顣����)
+                指定した WINDOW に再描画リクエストを発行します。
