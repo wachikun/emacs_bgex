@@ -1,21 +1,14 @@
 # Emacs-BGEX patch
 
-X 用 (X なら Cygwin でも MacOSX でも動きます!) FSF Emacs の背景拡張非公式パッチです。
+The `Emacs-BGEX patch' is an unofficial patch of the FSF Emacs background extension for X.
 
-Emacs-BGEX patch を適用すると背景に画像や色を指定できるようになります。
+If you apply the Emacs-BGEX patch, you can specify an image or color for the background.
 
-フレーム単位ではなく、バッファごとに異なる背景を指定することもできます。
+You can also specify a different background for each buffer instead of per frame.
 
-かれこれ 10 年以上メンテナンスしています。
+However, the background rendering is not complete because it is implemented forcibly.
 
-
-
-
-# Example
-
-## YouTube
-
-[![example](http://img.youtube.com/vi/5P89fA-2ZfU/0.jpg)](http://www.youtube.com/watch?v=5P89fA-2ZfU)
+I've been maintaining it for over 10 years now.
 
 
 
@@ -70,12 +63,12 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 ## HEAD
 
-- [patch-bgex_20210428_0-git-emacs-master](patch-bgex_20210428_0-git-emacs-master)
+- [patch-bgex_20211113_b-git-emacs-master](patch-bgex_20211113_b-git-emacs-master)
 
 
 ## for macOS (simple version)
 
-- [ns_bgex.20210428_0.patch](ns_bgex.20210428_0.patch)
+- [ns_bgex.20211009_a.patch](ns_bgex.20211009_a.patch)
 
 ```elisp
 (set-background-color "#d0b8a0")
@@ -143,4 +136,4 @@ $ ./configure --prefix=YOUR-INSTALL-PATH && make -j15
 
 # Specification
 
-Please see bgex_memo.txt (in Japanese).
+Please refer to bgex_memo_en.txt.
