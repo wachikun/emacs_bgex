@@ -4,7 +4,7 @@
 .PHONY			: all trunk 21.4 23.3a 24.2
 
 
-BASE_MASTER		= patch-bgex_20211013_0-git-emacs-master
+BASE_MASTER		= patch-bgex_20211121_a-git-emacs-master
 BASE_21_4		= patch-bgex_20050921_0-emacs-21.4
 BASE_23_3A		= patch-bgex_20110822_0-emacs-23.3a
 BASE_24_2		= patch-bgex_20120916_0-emacs-24.2

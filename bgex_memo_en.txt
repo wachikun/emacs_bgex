@@ -410,8 +410,6 @@ Functions
 
                 Redrawing requires a call to `redraw-display'.
 
-                Redrawing requires a call to `redraw-display'.
-
         Function: bgexi-get-image-filename BGEXID
 
                 Get the background image file name set in the BGEX
